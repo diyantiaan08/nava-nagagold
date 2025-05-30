@@ -1,0 +1,318 @@
+import { GoogleGenAI, Type } from '@google/genai';
+import {getDataOpname, getFullSummary, getManagerialAnalysis, getMarginPenjualan, getPembelian, getPesananDone, getPesananFinish, getPesananOpen, getSalesDetails, getSalesMarketplace, getService, getStockHutang, getTotalBarang, getTotalCash, getTotalNonCash} from './function_get.js'; // Import fungsi getSalesDetails
+
+// Configure the client
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY }); // Ganti dengan API key Anda
+
+// Define the function declaration for getting sales details from MongoDB
+const getSalesDetailsFunctionDeclaration = {
+  name: 'get_sales_details',
+  description: 'Mendapatkan data penjualan berdasarkan kriteria tertentu, seperti tanggal.',
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+        tgl_system:{
+            type:Type.STRING,
+            description:'Tanggal penjualan yang ingin dicari (format: YYYY-MM-DD). Contoh: 2025-05-01,'
+        },
+    }, 
+    required:['tgl_system'],// Saat ini tidak ada parameter spesifik, bisa ditambahkan jika diperlukan untuk query lebih lanjut
+  },
+};
+// Define the function declaration for getting sales marketplace from MongoDB
+const getSalesMarketplaceFunction = {
+  name: 'get_sales_marketplace',
+  description: 'Mendapatkan total data penjualan dan total berat yang dijual di marketplace, misalnya Shopee.',
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+        tgl_system:{
+            type:Type.STRING,
+            description:'Tanggal penjualan yang ingin dicari (format: YYYY-MM-DD). Contoh: 2025-05-01,'
+        },
+    }, 
+    required:['tgl_system'],// Saat ini tidak ada parameter spesifik, bisa ditambahkan jika diperlukan untuk query lebih lanjut
+  },
+};
+
+// Define the function declaration for getting item from MongoDB
+const getTotalItemFunction = {
+  name: 'get_total_item',
+  description: 'mengambil total barang dan berat dari kode gudang yang berikan, misalnya gudang TOKO.',
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+        kode_gudang:{
+            type:Type.STRING,
+            description:'lokasi gudang dimana item tersebut berada dan kode gudang barang sesuai yang ingin dicari oleh user. misalnya, gudang TOKO'
+        },
+    }, 
+    required:['kode_gudang'],// Saat ini tidak ada parameter spesifik, bisa ditambahkan jika diperlukan untuk query lebih lanjut
+  },
+};
+// Define the function declaration for getting cash from MongoDB
+const getTotalCashFunction = {
+  name: 'get_total_cash',
+  description: 'mengambil total rupiah berdasarkan tanggal yang diberikan',
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+        tanggal:{
+            type:Type.STRING,
+            description:'tanggal yang ingin dicari oleh user untuk mendapatkan data total rupiah. misalnya, tanggal 1 mei 2025'
+        },
+    }, 
+    required:['tanggal'],// Saat ini tidak ada parameter spesifik, bisa ditambahkan jika diperlukan untuk query lebih lanjut
+  },
+};
+// Define the function declaration for getting Noncash from MongoDB
+const getTotalNonCashFunction = {
+  name: 'get_total_noncash',
+  description: 'mengambil total data pembayaran non cash berdasarkan tanggal yang diberikan. data non cash ini seperti transfer, deber, dan credit',
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+        tanggal:{
+            type:Type.STRING,
+            description:'tanggal yang ingin dicari oleh user untuk mendapatkan data total rupiah. misalnya, tanggal 1 mei 2025'
+        },
+    }, 
+    required:['tanggal'],// Saat ini tidak ada parameter spesifik, bisa ditambahkan jika diperlukan untuk query lebih lanjut
+  },
+};
+// Define the function declaration for getting Pembelian from MongoDB
+const getPembelianFunction = {
+  name: 'get_pembelian',
+  description: 'Mendapatkan total data pembelian dan total berat yang dibeli kembali oleh toko',
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+        tgl_system:{
+            type:Type.STRING,
+            description:'Tanggal pembelian yang ingin dicari (format: YYYY-MM-DD). Contoh: 2025-05-01,'
+        },
+    }, 
+    required:['tgl_system'],// Saat ini tidak ada parameter spesifik, bisa ditambahkan jika diperlukan untuk query lebih lanjut
+  },
+};
+// Define the function declaration for getting Service from MongoDB
+const getServiceFunction = {
+  name: 'get_service',
+  description: 'Mendapatkan total data service (reparasi) sesuai tanggal yang dipilih, misalnya 3 maret 2025',
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+        tgl_system:{
+            type:Type.STRING,
+            description:'Tanggal data service yang ingin dicari (format: YYYY-MM-DD). Contoh: 2025-05-01,'
+        },
+    }, 
+    required:['tgl_system'],// Saat ini tidak ada parameter spesifik, bisa ditambahkan jika diperlukan untuk query lebih lanjut
+  },
+};
+// Define the function declaration for getting Stock Hutang from MongoDB
+const getStockHutangFunction = {
+  name: 'get_stock_hutang',
+  description: 'Mendapatkan total data hutang (gadai) dan berat yang belum dilunasi, yaitu dengan status_hutang:"OPEN", status_valid:"DONE"',
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+        tgl_system:{
+            type:Type.STRING,
+            description:'Tanggal hutang yang ingin dicari (format: YYYY-MM-DD). Contoh: 2025-05-01, bisa semua tanggal'
+        },
+    }, 
+    required:[],// Saat ini tidak ada parameter spesifik, bisa ditambahkan jika diperlukan untuk query lebih lanjut
+  },
+};
+// Define the function declaration for getting Pesanan Belum Selesai from MongoDB
+const getPesananOpenFunction = {
+  name: 'get_pesanan_open',
+  description: 'Mendapatkan total data pesanan (barang custom) dan berat yang baru masuk atau belum selesai, yaitu dengan status_pesanan:"OPEN", status_valid:"CLOSE"',
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+        tanggal:{
+            type:Type.STRING,
+            description:'Tanggal pesanan yang ingin dicari (format: YYYY-MM-DD). Contoh: 2025-05-01, bisa semua tanggal'
+        },
+    }, 
+    required:[],// Saat ini tidak ada parameter spesifik, bisa ditambahkan jika diperlukan untuk query lebih lanjut
+  },
+};
+// Define the function declaration for getting Pesanan belum di Ambil from MongoDB
+const getPesananDoneFunction = {
+  name: 'get_pesanan_done',
+  description: 'Mendapatkan total data pesanan (barang custom) dan berat yang sudah selesai namun belum di ambil, yaitu dengan status_pesanan:"DONE", status_valid:"CLOSE"',
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+        tanggal:{
+            type:Type.STRING,
+            description:'Tanggal pesanan yang ingin dicari (format: YYYY-MM-DD). Contoh: 2025-05-01, bisa semua tanggal'
+        },
+    }, 
+    required:[],// Saat ini tidak ada parameter spesifik, bisa ditambahkan jika diperlukan untuk query lebih lanjut
+  },
+};
+// Define the function declaration for getting Pesanan Sudah Di ambil from MongoDB
+const getPesananFinishFunction = {
+  name: 'get_pesanan_finish',
+  description: 'Mendapatkan total data pesanan (barang custom) dan berat yang sudah di ambil oleh pelanggan, yaitu dengan status_pesanan:"FINISH", status_valid:"CLOSE"',
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+        tanggal:{
+            type:Type.STRING,
+            description:'Tanggal pesanan yang ingin dicari (format: YYYY-MM-DD). Contoh: 2025-05-01, bisa semua tanggal'
+        },
+    }, 
+    required:[],// Saat ini tidak ada parameter spesifik, bisa ditambahkan jika diperlukan untuk query lebih lanjut
+  },
+};
+// Define the function declaration for getting Data Opname from MongoDB
+const getDataOpnameFunction = {
+  name: 'get_data_opname',
+  description: 'Mengambil jumlah data yang selisih (barang hilang) per nomor opname yaitu dengan status_barang:"OPEN", status_opname:"OPEN"',
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+        tgl_opname:{
+            type:Type.STRING,
+            description:'Tanggal data opname yang ingin dicari (format: YYYY-MM-DD). Contoh: 2025-05-01, bisa semua tanggal'
+        },
+    }, 
+    required:['tgl_opname'],
+  },
+};
+// Define the function declaration for getting Managerial Analysis from MongoDB
+const getManagerialAnalysisFunction = {
+  name: 'get_managerial_analysis',
+  description: 'Mendapatkan total data dan berat penjualan yang digrouping per jenis. kemudian setelah itu, bandingkan data mana yang paling laku jika dilihat berdasarkan qty (jumlah) ataupun berdasarkan berat dari semua jenis',
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+        tgl_system:{
+            type:Type.STRING,
+            description:'Tanggal data yang ingin dicari (format: YYYY-MM-DD). Contoh: 2025-05-01,'
+        },
+    }, 
+    required:['tgl_system'],
+  },
+};
+// Define All Function
+const getFullSummaryFunction = {
+  name: 'get_full_summary',
+  description: 'Mendapatkan total semua data dari jika user ingin mengetahui seluruh ringkasan transaksi berdasarkan tanggal yang dipilih, misalnya 3 maret 2025',
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+        tanggal:{
+            type:Type.STRING,
+            description:'Tanggal data yang ingin dicari (format: YYYY-MM-DD). Contoh: 2025-05-01,'
+        },
+    }, 
+    required:['tanggal'],
+  },
+};
+// Define the function declaration for getting Margin Penjualan from API
+const getMarginPenjualanDeclaration = {
+  name: 'get_margin_penjualan',
+  description: 'Mendapatkan data penjualan untuk menentukan margin atau keuntungan penjualannya berdasarkan kriteria tertentu, seperti tanggal.',
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+      tanggal: {
+        type: Type.STRING,
+        description: 'Tanggal penjualan yang ingin dicari, formatnya tanggal yang dicari (YYYY-MM-DD). Contoh:"2025-05-14',
+      },
+    },
+    required: ['tanggal'],
+  },
+};
+// (Deklarasi fungsi)
+async function callGemini(userQuery){
+  return await ai.models.generateContent({
+      model: 'gemini-2.0-flash',
+      contents: userQuery,
+    });
+  }
+
+async function main() {
+  const userQuery = "Berapakah total keuntungan saya dari penjualan tanggal 3 maret 2025?";
+
+  const response = await ai.models.generateContent({
+    model: 'gemini-2.0-flash',
+    contents: userQuery,
+    config: {
+      tools: [{
+        functionDeclarations: [
+          getSalesDetailsFunctionDeclaration, getSalesMarketplaceFunction, getMarginPenjualanDeclaration,
+          getTotalItemFunction, getTotalCashFunction,getTotalNonCashFunction, getPembelianFunction,
+          getServiceFunction,getStockHutangFunction, getPesananOpenFunction, getPesananDoneFunction,
+          getPesananFinishFunction,getDataOpnameFunction,getManagerialAnalysisFunction, getFullSummaryFunction,// Tambahkan deklarasi fungsi getSalesDetails
+        ],
+      }],
+    },
+  });
+
+  // Check for function calls in the response
+  if (response.functionCalls && response.functionCalls.length > 0) {
+    for (const functionCall of response.functionCalls) {
+      console.log(`Fungsi yang dipanggil: ${functionCall.name}`);
+      console.log(`Argumen: ${JSON.stringify(functionCall.args)}`);
+
+      let result;
+      if (functionCall.name === 'get_sales_details') {
+        result = await getSalesDetails(functionCall.args); // Panggil fungsi getSalesDetails
+      } else if(functionCall.name === 'get_sales_marketplace'){
+        result = await getSalesMarketplace(functionCall.args);
+      } else if (functionCall.name === "get_total_item"){
+        result = await getTotalBarang(functionCall.args)
+      } else if (functionCall.name === "get_total_cash"){
+        result = await getTotalCash(functionCall.args)
+      } else if (functionCall.name === 'get_total_noncash'){
+        result = await getTotalNonCash(functionCall.args)
+      } else if (functionCall.name === 'get_pembelian'){
+        result = await getPembelian(functionCall.args)
+      } else if (functionCall.name === 'get_service'){
+        result = await getService(functionCall.args)
+      } else if (functionCall.name === 'get_stock_hutang'){
+        result = await getStockHutang(functionCall.args)
+      }  else if (functionCall.name === 'get_pesanan_open'){
+        result = await getPesananOpen(functionCall.args)
+      } else if (functionCall.name === 'get_pesanan_done'){
+        result = await getPesananDone(functionCall.args)
+      } else if (functionCall.name === 'get_pesanan_finish'){
+        result = await getPesananFinish(functionCall.args)
+      } else if (functionCall.name === 'get_data_opname'){
+        result = await getDataOpname(functionCall.args)
+      } else if (functionCall.name === 'get_managerial_analysis'){
+        result = await getManagerialAnalysis(functionCall.args)
+      } else if (functionCall.name === 'get_full_summary'){
+        result = await getFullSummary(functionCall.args)
+      } else if (functionCall.name === 'get_margin_penjualan'){
+        result = await getMarginPenjualan(functionCall.args)
+      }
+
+
+      if (result) {
+        console.log(`Hasil fungsi ${functionCall.name}: ${JSON.stringify(result)}`);
+        var finalResult = await callGemini(`
+          tolong ubah hasil jawaban dari fungsi gemini menjadi kalimat yang mudah dipahami.
+          ini hasilnya:
+
+          ${JSON.stringify(result)}
+          `)
+          console.log(finalResult.candidates[0].content.parts.map((e) => e.text).join());
+        // Kirimkan hasil ini kembali ke model jika diperlukan
+      }
+    }
+  } else {
+    console.log("Tidak ada panggilan fungsi ditemukan dalam respons.");
+    console.log(response.text);
+  }
+
+}
+
+main().catch(console.error);
