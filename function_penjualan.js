@@ -1,6 +1,7 @@
 import axios from "axios";
 import dayjs from "dayjs";
 import { API_PATHS } from "./api_endpoints.js";
+import fs from "fs";
 
 const BASE_URL = process.env.TKM_BASE_URL || "https://tkmputri.goldstore.id";
 
@@ -9,7 +10,7 @@ const BASE_URL = process.env.TKM_BASE_URL || "https://tkmputri.goldstore.id";
  * Mengembalikan total qty, total berat, total rupiah dan rows mentah.
  * @param {{ tgl_awal?: string, tgl_akhir?: string, valid_by?: string, type?: string }} params
  */
-export async function getPenjualanAnnual({ tgl_awal, tgl_akhir, valid_by = "ALL", type = "SEMUA", is_consignment = false, is_consignment_barang = "ALL", kode_marketplace = "SEMUA", kasir = "ALL", supplier_barang = "ALL", token: tokenParam, useSSE = false } = {}) {
+export async function getPenjualanAnnual({ tgl_awal, tgl_akhir, valid_by = "ALL", type = "SEMUA", is_consignment = false, is_consignment_barang = "ALL", kode_marketplace = "SEMUA", kasir = "ALL", supplier_barang = "ALL", token: tokenParam, incomingHeaders = {}, useSSE = false } = {}) {
   const tglAwal = tgl_awal || dayjs().format("YYYY-MM-DD");
   const tglAkhir = tgl_akhir || tglAwal;
   const tokenToUse = tokenParam || process.env.TKM_TOKEN || "";
@@ -23,7 +24,6 @@ export async function getPenjualanAnnual({ tgl_awal, tgl_akhir, valid_by = "ALL"
     kode_marketplace,
     kasir,
     supplier_barang,
-    token: tokenToUse
   };
 
   const url = `${BASE_URL}${API_PATHS.getPenjualanReport}`;
@@ -31,6 +31,13 @@ export async function getPenjualanAnnual({ tgl_awal, tgl_akhir, valid_by = "ALL"
   const urlWithToken = `${url}${query}`;
   const headers = {};
   if (tokenToUse) headers["x-auth-token"] = tokenToUse;
+  // forward cookie and some common headers from incoming request if present
+  if (incomingHeaders) {
+    if (incomingHeaders.cookie) headers["cookie"] = incomingHeaders.cookie;
+    if (incomingHeaders.cookie_header) headers["cookie"] = incomingHeaders.cookie_header;
+    if (incomingHeaders.referer) headers["referer"] = incomingHeaders.referer;
+    if (incomingHeaders.origin) headers["origin"] = incomingHeaders.origin;
+  }
 
   if (useSSE) {
     // Lazy import EventSource for ESM compatibility
@@ -55,10 +62,23 @@ export async function getPenjualanAnnual({ tgl_awal, tgl_akhir, valid_by = "ALL"
         kode_marketplace,
         kasir,
         supplier_barang,
-        token: tokenToUse
       });
       const sseUrl = `${url}?${params.toString()}`;
-      const es = new EventSource(sseUrl);
+      try {
+        const logObj = {
+          stage: 'SSE_connect',
+          sseUrl: sseUrl,
+          headers: {
+            x_auth_token: headers['x-auth-token'] ? `${String(headers['x-auth-token']).slice(0,6)}...` : null,
+            cookie_names: incomingHeaders && incomingHeaders.cookie ? incomingHeaders.cookie.split(';').map(s=>s.split('=')[0].trim()).join(',') : null,
+            origin: incomingHeaders && incomingHeaders.origin ? incomingHeaders.origin : null
+          }
+        };
+        try { fs.appendFileSync('/tmp/sse_debug.log', `function_penjualan_sse:${JSON.stringify(logObj)}\n`); } catch(e){}
+      } catch(e){}
+      // pass headers to EventSource so server can reuse cookies/session
+      const esOptions = { headers };
+      const es = new EventSource(sseUrl, esOptions);
       let rows = [];
       let total_qty = 0;
       let total_berat = 0;
@@ -92,7 +112,10 @@ export async function getPenjualanAnnual({ tgl_awal, tgl_akhir, valid_by = "ALL"
   let data;
   try {
     // prefer GET with text response as some endpoints stream SSE
-    const resp = await axios.get(urlWithToken, { params: payload, headers, responseType: 'text' });
+      try {
+        try { fs.appendFileSync('/tmp/sse_debug.log', `function_penjualan_request:GET ${urlWithToken} headers:${JSON.stringify({ x_auth_token: headers['x-auth-token'] ? `${String(headers['x-auth-token']).slice(0,6)}...` : null, cookie: headers.cookie ? '[has_cookie]' : null })}\n`); } catch(e){}
+      } catch(e){}
+      const resp = await axios.get(urlWithToken, { params: payload, headers, responseType: 'text' });
     data = resp.data;
   } catch (err) {
     const status = err && err.response && err.response.status;

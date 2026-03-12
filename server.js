@@ -22,8 +22,18 @@ function formatDateIndo(isoDate) {
 }
 
 const app = express();
-app.use(cors());
+app.use(cors({ origin: true, credentials: true }));
 app.use(bodyParser.json());
+
+// Log keberadaan token pada saat start (jangan cetak token penuh)
+try {
+	const hasToken = !!process.env.TKM_TOKEN;
+	const tokenPreview = hasToken ? `${String(process.env.TKM_TOKEN).slice(0,4)}...` : 'N/A';
+	console.log(`TKM_TOKEN present: ${hasToken} preview:${tokenPreview}`);
+	try { fs.appendFileSync('/tmp/sse_debug.log', `server_start:TKM_TOKEN_present=${hasToken}\n`); } catch(e){}
+} catch (e) {
+	// ignore
+}
 
 // Endpoint: /getitem
 app.post("/getitem", async (req, res) => {
@@ -62,10 +72,64 @@ app.post("/getpenjualan", async (req, res) => {
 		tgl_akhir = tgl_akhir || tgl_awal;
 		const fn = functionDeclarations.find(f => f.name === "getPenjualanAnnual");
 		if (!fn) return res.status(500).json({ error: "getPenjualanAnnual not found" });
-		const result = await fn.func({ tgl_awal, tgl_akhir });
+		const incomingToken = req.body.token || req.headers['x-auth-token'] || req.query.token;
+		const result = await fn.func({ tgl_awal, tgl_akhir, token: incomingToken });
 		res.json(result);
 	} catch (err) {
 		res.status(500).json({ error: err.message });
+	}
+});
+
+// Endpoint: /test/all - run all report functions once for verification
+app.get("/test/all", async (req, res) => {
+	const token = req.query.token || req.headers['x-auth-token'] || process.env.TKM_TOKEN;
+	if (!token) return res.status(400).json({ error: 'missing token. provide ?token= or x-auth-token header or set TKM_TOKEN in .env' });
+	const date = req.query.date || dayjs().format('YYYY-MM-DD');
+	const incomingHeaders = req.headers || {};
+	const candidates = [
+		{ name: 'getItem', args: { tanggal: date } },
+		{ name: 'getHutang', args: { tgl_awal: date, tgl_akhir: date } },
+		{ name: 'getHutangLunas', args: { tgl_awal: date, tgl_akhir: date } },
+		{ name: 'getMarginPenjualan', args: { tgl_awal: date, tgl_akhir: date } },
+		{ name: 'getPembelian', args: { tgl_awal: date, tgl_akhir: date } },
+		{ name: 'getPembelianSales', args: { tgl_awal: date, tgl_akhir: date } },
+		{ name: 'getPenjualanMarketplace', args: { tgl_from: date, tgl_to: date } },
+		{ name: 'getPenjualanSales', args: { tgl_awal: date, tgl_akhir: date } },
+		{ name: 'getPenjualanAnnual', args: { tgl_awal: date, tgl_akhir: date } },
+		{ name: 'getReportCash', args: { tgl_from: date, tgl_to: date } },
+		{ name: 'getReportNonCash', args: { tgl_from: date, tgl_to: date } },
+		{ name: 'getService', args: { tgl_awal: date, tgl_akhir: date } },
+	];
+	const out = {};
+	for (const c of candidates) {
+		const fn = functionDeclarations.find(f => f.name === c.name);
+		if (!fn) { out[c.name] = { error: 'not found' }; continue; }
+		try {
+			const args = Object.assign({}, c.args, { token, incomingHeaders });
+			const r = await safeCallGlobal(fn.func, args);
+			out[c.name] = { ok: true, result: r };
+		} catch (e) {
+			if (e && e.message === 'AUTH_TERMINATED') {
+				return res.status(401).json({ error: 'auth terminated by upstream', detail: 'invalid token' });
+			}
+			out[c.name] = { ok: false, error: e && e.message, stack: e && e.stack };
+		}
+	}
+	res.json(out);
+});
+
+// Debug: call a single function and return stack on error
+app.get('/debug/call', async (req, res) => {
+	const name = req.query.fn;
+	if (!name) return res.status(400).json({ error: 'missing fn param' });
+	const fn = functionDeclarations.find(f => f.name === name);
+	if (!fn) return res.status(404).json({ error: 'function not found' });
+	const token = req.query.token || req.headers['x-auth-token'] || process.env.TKM_TOKEN;
+	try {
+		const r = await fn.func({ token, incomingHeaders: req.headers, ...(req.query.args ? JSON.parse(req.query.args) : {}) });
+		res.json({ ok: true, result: r });
+	} catch (e) {
+		res.json({ ok: false, error: e && e.message, stack: e && e.stack });
 	}
 });
 
@@ -108,6 +172,18 @@ function buildPrompt({ type, data, question }) {
 	return question;
 }
 
+// Global safe call for non-SSE diagnostics: throws 'AUTH_TERMINATED' on 400/401
+async function safeCallGlobal(fn, args) {
+	try {
+		return await fn(args);
+	} catch (e) {
+		const status = e && e.response && e.response.status;
+		try { fs.appendFileSync('/tmp/sse_debug.log', `safeCallGlobal_error:${JSON.stringify({ fn: fn && fn.name ? fn.name : 'anonymous', status, message: e.message, data: e && e.response && e.response.data })}\n`); } catch(ex){}
+		if (status === 400 || status === 401) throw new Error('AUTH_TERMINATED');
+		throw e;
+	}
+}
+
 // Endpoint: /stream/ask (SSE)
 app.get("/stream/ask", async (req, res) => {
 	res.setHeader("Content-Type", "text/event-stream");
@@ -128,6 +204,26 @@ app.get("/stream/ask", async (req, res) => {
 	// Parse dates once for reuse
 	const parsedCommon = parseDatePhrase(question);
 
+	// Helper: safeCall wraps function calls and handles auth errors by
+	// sending a clear SSE message and terminating the stream if token invalid.
+	async function safeCall(fn, args) {
+		try {
+			return await fn(args);
+		} catch (e) {
+			const status = e && e.response && e.response.status;
+			try { fs.appendFileSync('/tmp/sse_debug.log', `safeCall_error:${JSON.stringify({ fn: fn && fn.name ? fn.name : 'anonymous', status, message: e.message, data: e && e.response && e.response.data })}\n`); } catch(ex){}
+			if (status === 400 || status === 401) {
+				const msg = 'Maaf, server data menolak akses (token tidak valid atau kedaluwarsa). Silakan login ulang dan pastikan token dikirim lewat `?token=` atau header `x-auth-token`.';
+				res.write(`data: ${msg}\n\n`);
+				res.write(`event: done\ndata: {"status":"done"}\n\n`);
+				res.end();
+				// throw sentinel to stop further processing in caller
+				throw new Error('AUTH_TERMINATED');
+			}
+			throw e;
+		}
+	}
+
 	// Deteksi topik pertanyaan dan ambil data jika perlu
 	if (/stock|stok|jumlah|barang/i.test(question)) {
 		promptType = "stock";
@@ -138,15 +234,63 @@ app.get("/stream/ask", async (req, res) => {
 			if (parsedCommon && parsedCommon.tgl_awal) tanggal = parsedCommon.tgl_awal;
 			const getItem = functionDeclarations.find(f => f.name === "getItem");
 			if (getItem) {
-				promptData = await getItem.func({ tanggal });
+				const incomingToken = req.query.token || req.headers['x-auth-token'] || process.env.TKM_TOKEN;
+				const incomingHeaders = req.headers || {};
+				try { fs.appendFileSync('/tmp/sse_debug.log', `forward_headers_getItem:${JSON.stringify({ token_query: incomingToken ? `${String(incomingToken).slice(0,6)}...` : null, x_auth_token: incomingHeaders['x-auth-token'] ? `${String(incomingHeaders['x-auth-token']).slice(0,6)}...` : null, cookie_names: incomingHeaders.cookie ? incomingHeaders.cookie.split(';').map(s=>s.split('=')[0].trim()).join(',') : null })}\n`); } catch(e){}
+				// If no token at all, respond with clear SSE message
+				if (!incomingToken) {
+					const msg = 'Maaf, token tidak tersedia. Untuk mengakses data, sertakan token lewat query `?token=...` atau header `x-auth-token`, atau set TKM_TOKEN di .env dan restart server.';
+					res.write(`data: ${msg}\n\n`);
+					res.write(`event: done\ndata: {"status":"done"}\n\n`);
+					res.end();
+					return;
+				}
+				try {
+					promptData = await safeCall(getItem.func, { tanggal, token: incomingToken, incomingHeaders });
+				} catch(e) {
+					if (e && e.message === 'AUTH_TERMINATED') return;
+					// otherwise ignore and continue to fallback
+				}
 			}
 		} catch (e) {
 			// fallback: promptData tetap null
 		}
 	}
 
-	// Deteksi laporan transaksi penjualan / total penjualan
-	if (/laporan transaksi penjualan|transaksi penjualan|total transaksi penjualan|total penjualan|laporan penjualan/i.test(question)) {
+	// Deteksi laporan transaksi penjualan / total penjualan (tambahan: tangkap "total data penjualan", "berapa ... penjualan")
+	// PRIORITAS: jika pertanyaan menyebut "sales" prioritaskan laporan per-sales
+	if (!promptType && /\bsales\b|penjualan per sales|sales terbanyak|sales terbaik|siapa sales/i.test(question)) {
+		promptType = "penjualan_sales";
+		console.log('SSE detect -> penjualan_sales (priority)');
+		try { fs.appendFileSync('/tmp/sse_debug.log', `detect:penjualan_sales_priority\n`); } catch(e){}
+		try {
+			let tgl_awal = dayjs().format("YYYY-MM-DD");
+			let tgl_akhir = tgl_awal;
+			if (parsedCommon && parsedCommon.tgl_awal) tgl_awal = parsedCommon.tgl_awal;
+			if (parsedCommon && parsedCommon.tgl_akhir) tgl_akhir = parsedCommon.tgl_akhir || tgl_awal;
+			const fn = functionDeclarations.find(f => f.name === "getPenjualanSales");
+			if (fn) {
+				const incomingToken = req.query.token || req.headers['x-auth-token'] || process.env.TKM_TOKEN;
+				const incomingHeaders = req.headers || {};
+				if (!incomingToken) {
+					const msg = 'Maaf, token tidak tersedia. Sertakan token lewat query `?token=` atau header `x-auth-token`, atau set TKM_TOKEN di .env.';
+					res.write(`data: ${msg}\n\n`);
+					res.write(`event: done\ndata: {"status":"done"}\n\n`);
+					res.end();
+					return;
+				}
+				try {
+					promptData = await safeCall(fn.func, { tgl_awal, tgl_akhir, token: incomingToken, incomingHeaders });
+				} catch(e) {
+					if (e && e.message === 'AUTH_TERMINATED') return;
+				}
+				promptMeta.tgl_awal = tgl_awal;
+				promptMeta.tgl_akhir = tgl_akhir;
+			}
+		} catch(e) {}
+	}
+	if (/laporan transaksi penjualan|transaksi penjualan|total transaksi penjualan|total penjualan|laporan penjualan/i.test(question)
+		|| (/penjualan/i.test(question) && /\b(total|berapa|jumlah|berapa banyak|data)\b/i.test(question)) ) {
 		promptType = "penjualan_report";
 		console.log('SSE detect -> penjualan_report');
 		try { fs.appendFileSync('/tmp/sse_debug.log', `detect:penjualan_report\n`); } catch(e){}
@@ -157,12 +301,46 @@ app.get("/stream/ask", async (req, res) => {
 			if (parsedCommon && parsedCommon.tgl_akhir) tgl_akhir = parsedCommon.tgl_akhir || tgl_awal;
 			const getPenj = functionDeclarations.find(f => f.name === "getPenjualanAnnual");
 			if (getPenj) {
-				promptData = await getPenj.func({ tgl_awal, tgl_akhir });
+				const incomingToken = req.query.token || req.headers['x-auth-token'] || process.env.TKM_TOKEN;
+				const incomingHeaders = req.headers || {};
+				try {
+					const mask = (v) => {
+						if (!v) return '';
+						if (v.length <= 10) return v;
+						return `${v.slice(0,6)}...${v.slice(-4)}`;
+					};
+					let cookieSummary = '';
+					if (incomingHeaders.cookie) {
+						try { cookieSummary = incomingHeaders.cookie.split(';').map(s => s.split('=')[0].trim()).join(','); } catch(e) { cookieSummary = '[cookie_parse_error]'; }
+					}
+					const logged = {
+						token_query: incomingToken ? `${String(incomingToken).slice(0,6)}...` : null,
+						x_auth_token: incomingHeaders['x-auth-token'] ? `${String(incomingHeaders['x-auth-token']).slice(0,6)}...` : null,
+						cookie_names: cookieSummary,
+						referer: incomingHeaders.referer || null,
+						origin: incomingHeaders.origin || null,
+					};
+					try { fs.appendFileSync('/tmp/sse_debug.log', `forward_headers_penjualan:${JSON.stringify(logged)}\n`); } catch(e){}
+				} catch(e) {}
+				if (!incomingToken) {
+					const msg = 'Maaf, token tidak tersedia. Sertakan token lewat query `?token=` atau header `x-auth-token`, atau set TKM_TOKEN di .env.';
+					res.write(`data: ${msg}\n\n`);
+					res.write(`event: done\ndata: {"status":"done"}\n\n`);
+					res.end();
+					return;
+				}
+				try {
+					promptData = await safeCall(getPenj.func, { tgl_awal, tgl_akhir, token: incomingToken, incomingHeaders });
+				} catch(e) {
+					if (e && e.message === 'AUTH_TERMINATED') return;
+				}
 				promptMeta.tgl_awal = tgl_awal;
 				promptMeta.tgl_akhir = tgl_akhir;
 			}
 		} catch (e) {
-			// fallback
+			// fallback: log error details for debugging
+			try { fs.appendFileSync('/tmp/sse_debug.log', `error:penjualan_report:${e && e.message}:${JSON.stringify(e && e.response && e.response.data)}\n`); } catch(ex){}
+			console.error('Error fetching penjualan_report:', e && e.message);
 		}
 	}
 	// Deteksi penjualan marketplace / online
@@ -177,7 +355,9 @@ app.get("/stream/ask", async (req, res) => {
 			if (parsedCommon && parsedCommon.tgl_akhir) tgl_akhir = parsedCommon.tgl_akhir || tgl_awal;
 			const getPenjMk = functionDeclarations.find(f => f.name === "getPenjualanMarketplace");
 			if (getPenjMk) {
-				promptData = await getPenjMk.func({ tgl_from: tgl_awal, tgl_to: tgl_akhir });
+				const incomingToken = req.query.token || req.headers['x-auth-token'];
+				const incomingHeaders = req.headers || {};
+				promptData = await getPenjMk.func({ tgl_from: tgl_awal, tgl_to: tgl_akhir, token: incomingToken, incomingHeaders });
 				promptMeta.tgl_awal = tgl_awal;
 				promptMeta.tgl_akhir = tgl_akhir;
 			}
@@ -197,13 +377,36 @@ app.get("/stream/ask", async (req, res) => {
 			if (parsedCommon && parsedCommon.tgl_akhir) tgl_akhir = parsedCommon.tgl_akhir || tgl_awal;
 			const getPemb = functionDeclarations.find(f => f.name === "getPembelian");
 			if (getPemb) {
-				promptData = await getPemb.func({ tgl_awal, tgl_akhir });
+				const incomingToken = req.query.token || req.headers['x-auth-token'];
+				const incomingHeaders = req.headers || {};
+				promptData = await getPemb.func({ tgl_awal, tgl_akhir, token: incomingToken, incomingHeaders });
 				promptMeta.tgl_awal = tgl_awal;
 				promptMeta.tgl_akhir = tgl_akhir;
 			}
 		} catch (e) {
 			// fallback
 		}
+	}
+
+	// Deteksi pembelian per sales (siapa sales yang paling banyak melayani pembelian)
+	if (!promptType && /pembelian.*sales|sales.*pembelian|pembelian per sales|siapa sales.*pembelian/i.test(question)) {
+		promptType = "pembelian_sales";
+		console.log('SSE detect -> pembelian_sales');
+		try { fs.appendFileSync('/tmp/sse_debug.log', `detect:pembelian_sales\n`); } catch(e){}
+		try {
+			let tgl_awal = dayjs().format("YYYY-MM-DD");
+			let tgl_akhir = tgl_awal;
+			if (parsedCommon && parsedCommon.tgl_awal) tgl_awal = parsedCommon.tgl_awal;
+			if (parsedCommon && parsedCommon.tgl_akhir) tgl_akhir = parsedCommon.tgl_akhir || tgl_awal;
+			const fn = functionDeclarations.find(f => f.name === "getPembelianSales");
+			if (fn) {
+				const incomingToken = req.query.token || req.headers['x-auth-token'];
+				const incomingHeaders = req.headers || {};
+				promptData = await fn.func({ tgl_awal, tgl_akhir, token: incomingToken, incomingHeaders });
+				promptMeta.tgl_awal = tgl_awal;
+				promptMeta.tgl_akhir = tgl_akhir;
+			}
+		} catch (e) {}
 	}
 	// Deteksi laporan penjualan per sales
 	if (!promptType && /penjualan sales|penjualan per sales|sales terbaik|sales terbanyak|sales mana/i.test(question)) {
@@ -217,9 +420,23 @@ app.get("/stream/ask", async (req, res) => {
 			if (parsedCommon && parsedCommon.tgl_akhir) tgl_akhir = parsedCommon.tgl_akhir || tgl_awal;
 			const getPenjSales = functionDeclarations.find(f => f.name === "getPenjualanSales");
 			if (getPenjSales) {
-				promptData = await getPenjSales.func({ tgl_awal, tgl_akhir });
-				promptMeta.tgl_awal = tgl_awal;
-				promptMeta.tgl_akhir = tgl_akhir;
+					const incomingToken = req.query.token || req.headers['x-auth-token'] || process.env.TKM_TOKEN;
+					const incomingHeaders = req.headers || {};
+					try { fs.appendFileSync('/tmp/sse_debug.log', `forward_headers_penjualan_sales:${JSON.stringify({ token_query: incomingToken ? `${String(incomingToken).slice(0,6)}...` : null, x_auth_token: incomingHeaders['x-auth-token'] ? `${String(incomingHeaders['x-auth-token']).slice(0,6)}...` : null })}\n`); } catch(e){}
+					if (!incomingToken) {
+						const msg = 'Maaf, token tidak tersedia. Sertakan token lewat query `?token=` atau header `x-auth-token`, atau set TKM_TOKEN di .env.';
+						res.write(`data: ${msg}\n\n`);
+						res.write(`event: done\ndata: {"status":"done"}\n\n`);
+						res.end();
+						return;
+					}
+					try {
+						promptData = await safeCall(getPenjSales.func, { tgl_awal, tgl_akhir, token: incomingToken, incomingHeaders });
+					} catch(e) {
+						if (e && e.message === 'AUTH_TERMINATED') return;
+					}
+					promptMeta.tgl_awal = tgl_awal;
+					promptMeta.tgl_akhir = tgl_akhir;
 			}
 		} catch (e) {
 			// fallback
@@ -237,7 +454,10 @@ app.get("/stream/ask", async (req, res) => {
 			if (parsedCommon && parsedCommon.tgl_akhir) tgl_akhir = parsedCommon.tgl_akhir || tgl_awal;
 			const fn = functionDeclarations.find(f => f.name === "getHutang");
 			if (fn) {
-				promptData = await fn.func({ tgl_awal, tgl_akhir });
+				const incomingToken = req.query.token || req.headers['x-auth-token'];
+				const incomingHeaders = req.headers || {};
+				try { fs.appendFileSync('/tmp/sse_debug.log', `forward_headers_hutang:${JSON.stringify({ token_query: incomingToken ? `${String(incomingToken).slice(0,6)}...` : null, x_auth_token: incomingHeaders['x-auth-token'] ? `${String(incomingHeaders['x-auth-token']).slice(0,6)}...` : null, cookie_names: incomingHeaders.cookie ? incomingHeaders.cookie.split(';').map(s=>s.split('=')[0].trim()).join(',') : null })}\n`); } catch(e){}
+				promptData = await fn.func({ tgl_awal, tgl_akhir, token: incomingToken, incomingHeaders });
 				promptMeta.tgl_awal = tgl_awal;
 				promptMeta.tgl_akhir = tgl_akhir;
 			}
@@ -255,7 +475,10 @@ app.get("/stream/ask", async (req, res) => {
 			if (parsedCommon && parsedCommon.tgl_akhir) tgl_akhir = parsedCommon.tgl_akhir || tgl_awal;
 			const fn = functionDeclarations.find(f => f.name === "getHutangLunas");
 			if (fn) {
-				promptData = await fn.func({ tgl_awal, tgl_akhir });
+				const incomingToken = req.query.token || req.headers['x-auth-token'];
+				const incomingHeaders = req.headers || {};
+				try { fs.appendFileSync('/tmp/sse_debug.log', `forward_headers_hutang_lunas:${JSON.stringify({ token_query: incomingToken ? `${String(incomingToken).slice(0,6)}...` : null, x_auth_token: incomingHeaders['x-auth-token'] ? `${String(incomingHeaders['x-auth-token']).slice(0,6)}...` : null, cookie_names: incomingHeaders.cookie ? incomingHeaders.cookie.split(';').map(s=>s.split('=')[0].trim()).join(',') : null })}\n`); } catch(e){}
+				promptData = await fn.func({ tgl_awal, tgl_akhir, token: incomingToken, incomingHeaders });
 				promptMeta.tgl_awal = tgl_awal;
 				promptMeta.tgl_akhir = tgl_akhir;
 			}
@@ -273,7 +496,9 @@ app.get("/stream/ask", async (req, res) => {
 			if (parsedCommon && parsedCommon.tgl_akhir) tgl_to = parsedCommon.tgl_akhir || tgl_from;
 			const fn = functionDeclarations.find(f => f.name === "getReportCash");
 			if (fn) {
-				promptData = await fn.func({ tgl_from, tgl_to, user_login: process.env.USER_LOGIN || 'devops.nagatech' });
+				const incomingToken = req.query.token || req.headers['x-auth-token'];
+				const incomingHeaders = req.headers || {};
+				promptData = await fn.func({ tgl_from, tgl_to, user_login: process.env.USER_LOGIN || 'devops.nagatech', token: incomingToken, incomingHeaders });
 				promptMeta.tgl_awal = tgl_from;
 				promptMeta.tgl_akhir = tgl_to;
 			}
@@ -291,7 +516,9 @@ app.get("/stream/ask", async (req, res) => {
 			if (parsedCommon && parsedCommon.tgl_akhir) tgl_to = parsedCommon.tgl_akhir || tgl_from;
 			const fn = functionDeclarations.find(f => f.name === "getReportNonCash");
 			if (fn) {
-				promptData = await fn.func({ tgl_from, tgl_to, useSSE: true });
+				const incomingToken = req.query.token || req.headers['x-auth-token'];
+				const incomingHeaders = req.headers || {};
+				promptData = await fn.func({ tgl_from, tgl_to, useSSE: true, token: incomingToken, incomingHeaders });
 				promptMeta.tgl_awal = tgl_from;
 				promptMeta.tgl_akhir = tgl_to;
 			}
@@ -309,7 +536,9 @@ app.get("/stream/ask", async (req, res) => {
 			if (parsedCommon && parsedCommon.tgl_akhir) tgl_akhir = parsedCommon.tgl_akhir || tgl_awal;
 			const fn = functionDeclarations.find(f => f.name === "getService");
 			if (fn) {
-				promptData = await fn.func({ tgl_awal, tgl_akhir });
+				const incomingToken = req.query.token || req.headers['x-auth-token'];
+				const incomingHeaders = req.headers || {};
+				promptData = await fn.func({ tgl_awal, tgl_akhir, token: incomingToken, incomingHeaders });
 				promptMeta.tgl_awal = tgl_awal;
 				promptMeta.tgl_akhir = tgl_akhir;
 			}
@@ -328,7 +557,9 @@ app.get("/stream/ask", async (req, res) => {
 			if (parsed && parsed.tgl_akhir) tgl_akhir = parsed.tgl_akhir || tgl_awal;
 			const getMargin = functionDeclarations.find(f => f.name === "getMarginPenjualan");
 			if (getMargin) {
-				promptData = await getMargin.func({ tgl_awal, tgl_akhir });
+				const incomingToken = req.query.token || req.headers['x-auth-token'];
+				const incomingHeaders = req.headers || {};
+				promptData = await getMargin.func({ tgl_awal, tgl_akhir, token: incomingToken, incomingHeaders });
 				promptMeta.tgl_awal = tgl_awal;
 				promptMeta.tgl_akhir = tgl_akhir;
 			}
