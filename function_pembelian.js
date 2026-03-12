@@ -80,6 +80,7 @@ export async function getPembelian({ tgl_awal, tgl_akhir, group_by = "no_faktur_
  * sortBy: 'qty'|'berat'|'harga' (default 'qty')
  */
 export async function getPembelianSales({ tgl_awal, tgl_akhir, kode_sales = "ALL", kode_group = "ALL", valid_by = "ALL", jenis_group = "ALL", sortBy = "qty", token: tokenParam, incomingHeaders } = {}) {
+
   const tglAwal = tgl_awal || dayjs().format("YYYY-MM-DD");
   const tglAkhir = tgl_akhir || tglAwal;
   const payload = {
@@ -93,8 +94,6 @@ export async function getPembelianSales({ tgl_awal, tgl_akhir, kode_sales = "ALL
 
   const url = `${BASE_URL}${API_PATHS.getPembelianSales}`;
   const effectiveToken = (incomingHeaders && incomingHeaders['x-auth-token']) || tokenParam || process.env.TKM_TOKEN || "";
-  const query = effectiveToken ? `?token=${encodeURIComponent(effectiveToken)}` : "";
-  const urlWithToken = `${url}${query}`;
   const headers = {};
   if (effectiveToken) headers["x-auth-token"] = effectiveToken;
   if (incomingHeaders) {
@@ -105,12 +104,13 @@ export async function getPembelianSales({ tgl_awal, tgl_akhir, kode_sales = "ALL
 
   let data;
   try {
-    const resp = await axios.post(urlWithToken, payload, { headers });
+    // HANYA kirim token di header, JANGAN di query string
+    const resp = await axios.post(url, payload, { headers });
     data = resp.data;
   } catch (err) {
     const status = err && err.response && err.response.status;
     if (status === 404 || status === 405) {
-      const resp2 = await axios.get(urlWithToken, { params: payload, headers });
+      const resp2 = await axios.get(url, { params: payload, headers });
       data = resp2.data;
     } else {
       throw err;

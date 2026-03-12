@@ -186,6 +186,14 @@ async function safeCallGlobal(fn, args) {
 
 // Endpoint: /stream/ask (SSE)
 app.get("/stream/ask", async (req, res) => {
+		// Log env dan pertanyaan untuk debug
+		try {
+			fs.appendFileSync('/tmp/sse_debug.log', `env_check:TKM_TOKEN=${process.env.TKM_TOKEN ? process.env.TKM_TOKEN.slice(0,12)+"..." : 'null'}\n`);
+			fs.appendFileSync('/tmp/sse_debug.log', `env_check:TKM_BASE_URL=${process.env.TKM_BASE_URL || 'null'}\n`);
+			fs.appendFileSync('/tmp/sse_debug.log', `env_check:PORT=${process.env.PORT || 'null'}\n`);
+			fs.appendFileSync('/tmp/sse_debug.log', `env_check:USER_LOGIN=${process.env.USER_LOGIN || 'null'}\n`);
+			fs.appendFileSync('/tmp/sse_debug.log', `question_check:${req.query.question || ''}\n`);
+		} catch(e){}
 	res.setHeader("Content-Type", "text/event-stream");
 	res.setHeader("Cache-Control", "no-cache");
 	res.setHeader("Connection", "keep-alive");
@@ -203,6 +211,167 @@ app.get("/stream/ask", async (req, res) => {
 	let promptMeta = {};
 	// Parse dates once for reuse
 	const parsedCommon = parseDatePhrase(question);
+
+	// Cek kecocokan kata kunci eksplisit dari deklarasi fungsi terlebih dahulu
+	try { fs.appendFileSync('/tmp/sse_debug.log', `keyword_routing:start:question=${(question||'').slice(0,120)}\n`); } catch(e){}
+	{
+		// quick-rule: jika pertanyaan menyebut 'pembelian' dan 'sales', langsung panggil getPembelianSales
+		const quick_hasPembelian = /\bpembelian\b/i.test(question);
+		const quick_hasSales = /\bsales\b/i.test(question);
+		if (quick_hasPembelian && quick_hasSales) {
+			const pembFn = functionDeclarations.find(f => f.type === 'pembelian_sales');
+			if (pembFn) {
+				try { fs.appendFileSync('/tmp/sse_debug.log', `keyword_match_explicit:getPembelianSales:quick_rule\n`); } catch(e){}
+				const tgl_awal_q = (parsedCommon && parsedCommon.tgl_awal) ? parsedCommon.tgl_awal : dayjs().format("YYYY-MM-DD");
+				const tgl_akhir_q = (parsedCommon && parsedCommon.tgl_akhir) ? parsedCommon.tgl_akhir : tgl_awal_q;
+				const incomingTokenQ = req.query.token || req.headers['x-auth-token'] || process.env.TKM_TOKEN;
+				const incomingHeadersQ = req.headers || {};
+				if (!incomingTokenQ) {
+					const msg = 'Maaf, token tidak tersedia. Sertakan token lewat query `?token=` atau header `x-auth-token`, atau set TKM_TOKEN di .env.';
+					res.write(`data: ${msg}\n\n`);
+					res.write(`event: done\ndata: {"status":"done"}\n\n`);
+					res.end();
+					return;
+				}
+				try {
+					try { fs.appendFileSync('/tmp/sse_debug.log', `promptData_call_quick:pembelian_sales:akan_dipanggil\n`); } catch(e){}
+					promptData = await safeCall(pembFn.func, { tgl_awal: tgl_awal_q, tgl_akhir: tgl_akhir_q, token: incomingTokenQ, incomingHeaders: incomingHeadersQ });
+					try { fs.appendFileSync('/tmp/sse_debug.log', `promptData_call_quick:pembelian_sales:berhasil_dipanggil\n`); } catch(e){}
+					promptType = pembFn.type;
+					promptMeta.tgl_awal = tgl_awal_q;
+					promptMeta.tgl_akhir = tgl_akhir_q;
+					try { fs.appendFileSync('/tmp/sse_debug.log', `promptData_set_quick:pembelian_sales:${JSON.stringify({ hasAggregate: !!(promptData && promptData.aggregate), agg_len: promptData && promptData.aggregate ? promptData.aggregate.length : null, rows_len: promptData && promptData.rows ? promptData.rows.length : null })}\n`); } catch(e){}
+				} catch(e) {
+					try { fs.appendFileSync('/tmp/sse_debug.log', `promptData_error_quick:pembelian_sales:${e && e.message}\n`); } catch(ex){}
+					if (e && e.message === 'AUTH_TERMINATED') return;
+				}
+				// skip regular keyword loop if quick rule matched and returned data
+				if (promptData) {
+					// proceed to building final answer later
+					// we simply exit this keyword-routing block
+					// (no explicit return here because we need to continue to answer assembly)
+					// but mark a flag by setting matches to empty to avoid duplicate calls
+					// (the later code checks promptData presence before falling back)
+					// nothing else needed here
+				}
+			} 
+		}
+
+		// continue with normal keyword matching
+		const matches = [];
+		// If question explicitly mentions both pembelian and sales, ensure
+		// there's always an explicit match for pembelian_sales so it can
+		// be prioritized by the subsequent selection logic.
+		const _hasPembelian = /\bpembelian\b/i.test(question);
+		const _hasSales = /\bsales\b/i.test(question);
+		if (_hasPembelian && _hasSales) {
+			const explicitPemb = functionDeclarations.find(f => f.type === 'pembelian_sales');
+			if (explicitPemb) {
+				matches.push({ func: explicitPemb, key: 'explicit_pembelian_sales', len: explicitPemb.keywords ? explicitPemb.keywords.join(' ').length : 100 });
+				try { fs.appendFileSync('/tmp/sse_debug.log', `keyword_match_explicit_inserted:getPembelianSales\n`); } catch(e){}
+			}
+		}
+		for (const f of functionDeclarations) {
+			const kws = f.keywords || [];
+			for (const k of kws) {
+				const esc = k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+				const re = new RegExp('\\b' + esc + '\\b', 'i');
+				if (re.test(question)) {
+					matches.push({ func: f, key: k, len: k.length });
+				}
+			}
+		}
+			if (matches.length) {
+			// pilih kecocokan terpanjang (lebih spesifik), jika tie gunakan urutan pertama
+			matches.sort((a,b) => b.len - a.len);
+			// Jika terdapat konflik antara penjualan_sales dan pembelian_sales, prioritaskan pembelian jika kata 'pembelian' ada di pertanyaan
+			const hasPembelian = /\bpembelian\b/i.test(question);
+			const hasMarketplace = /\bmarketplace\b|\btokopedia\b|\bshopee\b|\blazada\b|\bonline\b/i.test(question);
+			let pick = matches[0];
+			// tambahan: jika pertanyaan menyebut 'pembelian' dan 'sales', prioritaskan
+			// fungsi pembelian_sales meskipun kecocokan singkat (mis. 'pembelian') juga ada.
+			const hasSales = /\bsales\b/i.test(question);
+			if (hasPembelian && hasSales) {
+				const pembelianFunc = functionDeclarations.find(f => f.type === 'pembelian_sales');
+				if (pembelianFunc) {
+					// jika pembelian_sales ada, pilih itu secara eksplisit
+					pick = matches.find(x => x.func.type === 'pembelian_sales') || { func: pembelianFunc, key: 'explicit_pembelian_sales', len: pembelianFunc.keywords ? pembelianFunc.keywords.join(' ').length : 100 };
+				}
+			}
+			if (matches.length > 1) {
+				const hasSales = /\bsales\b/i.test(question);
+				const mNames = matches.map(x=>x.func.type);
+				// if question mentions both 'pembelian' and 'sales' prefer pembelian_sales
+				if (hasPembelian && hasSales && mNames.includes('pembelian_sales')) {
+					pick = matches.find(x=>x.func.type === 'pembelian_sales') || pick;
+				}
+				// jika ada match untuk pembelian_sales dan penjualan_sales, dan pertanyaan menyebut pembelian, pilih pembelian_sales
+				if (hasPembelian && mNames.includes('pembelian_sales') && mNames.includes('penjualan_sales')) {
+					pick = matches.find(x=>x.func.type === 'pembelian_sales') || pick;
+				}
+				// jika ada match untuk penjualan_marketplace dan penjualan_report, dan kata marketplace ada, pilih marketplace
+				if (hasMarketplace && mNames.includes('penjualan_marketplace') && mNames.includes('penjualan_report')) {
+					pick = matches.find(x=>x.func.type === 'penjualan_marketplace') || pick;
+				}
+			}
+			const f = pick.func;
+			const k = pick.key;
+			promptType = f.type || null;
+			try { fs.appendFileSync('/tmp/sse_debug.log', `keyword_match:${f.name}:${k}\n`); } catch(e){}
+			try {
+				let tgl_awal = dayjs().format("YYYY-MM-DD");
+				let tgl_akhir = tgl_awal;
+				let tgl_from = tgl_awal;
+				let tgl_to = tgl_akhir;
+				if (parsedCommon && parsedCommon.tgl_awal) {
+					tgl_awal = parsedCommon.tgl_awal;
+					tgl_from = parsedCommon.tgl_awal;
+				}
+				if (parsedCommon && parsedCommon.tgl_akhir) {
+					tgl_akhir = parsedCommon.tgl_akhir || tgl_awal;
+					tgl_to = parsedCommon.tgl_akhir || tgl_from;
+				}
+				const incomingToken = req.query.token || req.headers['x-auth-token'] || process.env.TKM_TOKEN;
+				const incomingHeaders = req.headers || {};
+				if (!incomingToken) {
+					const msg = 'Maaf, token tidak tersedia. Sertakan token lewat query `?token=` atau header `x-auth-token`, atau set TKM_TOKEN di .env.';
+					res.write(`data: ${msg}\n\n`);
+					res.write(`event: done\ndata: {"status":"done"}\n\n`);
+					res.end();
+					return;
+				}
+				let args = { token: incomingToken, incomingHeaders };
+				if (promptType === 'penjualan_marketplace' || promptType === 'report_non_cash' || promptType === 'report_cash') {
+					args.tgl_from = tgl_from;
+					args.tgl_to = tgl_to;
+				} else {
+					args.tgl_awal = tgl_awal;
+					args.tgl_akhir = tgl_akhir;
+				}
+				try {
+					if (f.type === 'pembelian_sales') {
+						try { fs.appendFileSync('/tmp/sse_debug.log', `promptData_call_match:pembelian_sales:akan_dipanggil\n`); } catch(e){}
+					}
+					promptData = await safeCall(f.func, args);
+					if (f.type === 'pembelian_sales') {
+						try { fs.appendFileSync('/tmp/sse_debug.log', `promptData_call_match:pembelian_sales:berhasil_dipanggil\n`); } catch(e){}
+					}
+					promptMeta.tgl_awal = args.tgl_awal || args.tgl_from;
+					promptMeta.tgl_akhir = args.tgl_akhir || args.tgl_to;
+					if (f.type === 'pembelian_sales') {
+						try { fs.appendFileSync('/tmp/sse_debug.log', `promptData_set_match:pembelian_sales:${JSON.stringify({ hasAggregate: !!(promptData && promptData.aggregate), agg_len: promptData && promptData.aggregate ? promptData.aggregate.length : null, rows_len: promptData && promptData.rows ? promptData.rows.length : null })}\n`); } catch(e){}
+					}
+				} catch(e) {
+					if (f.type === 'pembelian_sales') {
+						try { fs.appendFileSync('/tmp/sse_debug.log', `promptData_error_match:pembelian_sales:${e && e.message}\n`); } catch(ex){}
+					}
+					if (e && e.message === 'AUTH_TERMINATED') return;
+				}
+			} catch(e) {
+				// ignore and fallback to regex-based detection
+			}
+		}
+	}
 
 	// Helper: safeCall wraps function calls and handles auth errors by
 	// sending a clear SSE message and terminating the stream if token invalid.
@@ -259,7 +428,7 @@ app.get("/stream/ask", async (req, res) => {
 
 	// Deteksi laporan transaksi penjualan / total penjualan (tambahan: tangkap "total data penjualan", "berapa ... penjualan")
 	// PRIORITAS: jika pertanyaan menyebut "sales" prioritaskan laporan per-sales
-	if (!promptType && /\bsales\b|penjualan per sales|sales terbanyak|sales terbaik|siapa sales/i.test(question)) {
+	if (!promptType && ( /\bpenjualan\b.*\bsales\b|\bsales\b.*\bpenjualan\b|penjualan per sales|penjualan sales|sales terbaik|sales terbanyak|siapa sales/i.test(question) )) {
 		promptType = "penjualan_sales";
 		console.log('SSE detect -> penjualan_sales (priority)');
 		try { fs.appendFileSync('/tmp/sse_debug.log', `detect:penjualan_sales_priority\n`); } catch(e){}
@@ -289,8 +458,9 @@ app.get("/stream/ask", async (req, res) => {
 			}
 		} catch(e) {}
 	}
-	if (/laporan transaksi penjualan|transaksi penjualan|total transaksi penjualan|total penjualan|laporan penjualan/i.test(question)
-		|| (/penjualan/i.test(question) && /\b(total|berapa|jumlah|berapa banyak|data)\b/i.test(question)) ) {
+	if ( ( /laporan transaksi penjualan|transaksi penjualan|total transaksi penjualan|total penjualan|laporan penjualan/i.test(question)
+		|| (/penjualan/i.test(question) && /\b(total|berapa|jumlah|berapa banyak|data)\b/i.test(question)) )
+		&& !/marketplace|online|tokopedia|shopee|lazada/i.test(question) ) {
 		promptType = "penjualan_report";
 		console.log('SSE detect -> penjualan_report');
 		try { fs.appendFileSync('/tmp/sse_debug.log', `detect:penjualan_report\n`); } catch(e){}
@@ -443,7 +613,7 @@ app.get("/stream/ask", async (req, res) => {
 		}
 	}
 	// Deteksi laporan hutang
-	if (!promptType && /hutang|utang|kreditur|pembayaran tertunda/i.test(question)) {
+	if (!promptType && /hutang|utang|kreditur|pembayaran tertunda/i.test(question) && !/lunas|lunasi|pelunasan|sudah dilunasi/i.test(question)) {
 		promptType = "hutang";
 		console.log('SSE detect -> hutang');
 		try { fs.appendFileSync('/tmp/sse_debug.log', `detect:hutang\n`); } catch(e){}
@@ -485,7 +655,7 @@ app.get("/stream/ask", async (req, res) => {
 		} catch (e) {}
 	}
 	// Deteksi laporan cash (kas)
-	if (!promptType && /cash|kas|uang kas|saldo kas|total kas|saldo akhir kas/i.test(question)) {
+	if (!promptType && /cash|kas|uang kas|saldo kas|total kas|saldo akhir kas/i.test(question) && !/non-?cash|transfer|debet|kredit|rekening|rekening bank|saldo non-cash/i.test(question)) {
 		promptType = "report_cash";
 		console.log('SSE detect -> report_cash');
 		try { fs.appendFileSync('/tmp/sse_debug.log', `detect:report_cash\n`); } catch(e){}
@@ -773,6 +943,39 @@ app.get("/stream/ask", async (req, res) => {
 		}
 	}
 
+		// Jika kita sudah punya data laporan pembelian per sales, kirim jawaban final di server
+		if (promptType === "pembelian_sales" && promptData) {
+			try {
+				const nfInt = new Intl.NumberFormat("id-ID");
+				const nfDec = new Intl.NumberFormat("id-ID", { minimumFractionDigits: 1, maximumFractionDigits: 3 });
+				const nfRupiah = new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", minimumFractionDigits: 0 });
+				const aggregates = promptData.aggregate || [];
+				if (!aggregates.length) {
+					res.write(`data: Maaf, tidak ada data pembelian per sales untuk periode yang diminta.\n\n`);
+					res.write(`event: done\ndata: {"status":"done"}\n\n`);
+					res.end();
+					return;
+				}
+				// tentukan metric: jumlah (qty) atau berat atau harga
+				let sortBy = 'jumlah';
+				if (/berat/i.test(question)) sortBy = 'berat';
+				if (/harga|nilai|rp|rupiah/i.test(question)) sortBy = 'harga';
+				aggregates.sort((a,b) => (b[sortBy]||0) - (a[sortBy]||0));
+				const top = aggregates[0];
+				const qty = nfInt.format(Number(top.jumlah || 0));
+				const berat = nfDec.format(Number(top.berat || 0));
+				const rupiah = nfRupiah.format(Number(top.harga || 0));
+				const name = top.nama_sales || top.nama || top.kode_sales || '';
+				let finalAnswer = `Sales terbanyak berdasarkan ${sortBy}: ${name} — qty ${qty} unit, berat ${berat} gram, nilai ${rupiah}.`;
+				res.write(`data: ${finalAnswer}\n\n`);
+				res.write(`event: done\ndata: {"status":"done"}\n\n`);
+				res.end();
+				return;
+			} catch (e) {
+				// fallback ke model
+			}
+		}
+
 	// Jika kita sudah punya data laporan pembelian, kirim jawaban final di server
 	if (promptType === "pembelian" && promptData) {
 		try {
@@ -805,6 +1008,111 @@ app.get("/stream/ask", async (req, res) => {
 		} catch (e) {
 			// fallback to model
 		}
+	}
+
+	// Jika kita sudah punya data laporan hutang, kirim jawaban final di server (prevent model stream partial tokens)
+	if (promptType === "hutang" && promptData) {
+		try {
+			const nfInt = new Intl.NumberFormat("id-ID");
+			const nfDec = new Intl.NumberFormat("id-ID", { minimumFractionDigits: 1, maximumFractionDigits: 3 });
+			const nfRupiah = new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", minimumFractionDigits: 0 });
+			const count = nfInt.format(Number(promptData.total_jumlah || 0));
+			const berat = nfDec.format(Number(promptData.total_berat || 0));
+			const totalHutang = nfRupiah.format(Number(promptData.total_hutang || 0));
+			let whenLabel = 'hari ini';
+			if (parsedCommon && parsedCommon.tgl_awal) {
+				if (parsedCommon.tgl_awal === parsedCommon.tgl_akhir) whenLabel = formatDateIndo(parsedCommon.tgl_awal);
+				else whenLabel = `periode ${formatDateIndo(parsedCommon.tgl_awal)} sampai ${formatDateIndo(parsedCommon.tgl_akhir)}`;
+			}
+			const finalAnswer = `Total hutang ${whenLabel}: ${count} transaksi, total berat ${berat} gram, total hutang ${totalHutang}.`;
+			res.write(`data: ${finalAnswer}\n\n`);
+			res.write(`event: done\ndata: {"status":"done"}\n\n`);
+			res.end();
+			return;
+		} catch (e) {}
+	}
+
+	// Jika kita sudah punya data laporan hutang lunas, kirim jawaban final di server
+	if (promptType === "hutang_lunas" && promptData) {
+		try {
+			const nfInt = new Intl.NumberFormat("id-ID");
+			const nfRupiah = new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", minimumFractionDigits: 0 });
+			const count = nfInt.format(Number(promptData.total_jumlah || 0));
+			const totalBayar = nfRupiah.format(Number(promptData.total_hutang_lunas || 0));
+			const totalBunga = nfRupiah.format(Number(promptData.total_bunga_lunas || 0));
+			let whenLabel = 'hari ini';
+			if (parsedCommon && parsedCommon.tgl_awal) {
+				if (parsedCommon.tgl_awal === parsedCommon.tgl_akhir) whenLabel = formatDateIndo(parsedCommon.tgl_awal);
+				else whenLabel = `periode ${formatDateIndo(parsedCommon.tgl_awal)} sampai ${formatDateIndo(parsedCommon.tgl_akhir)}`;
+			}
+			const finalAnswer = `Total hutang lunas ${whenLabel}: ${count} transaksi, total bayar ${totalBayar}, total bunga ${totalBunga}.`;
+			res.write(`data: ${finalAnswer}\n\n`);
+			res.write(`event: done\ndata: {"status":"done"}\n\n`);
+			res.end();
+			return;
+		} catch (e) {}
+	}
+
+	// Jika kita sudah punya data laporan cash, kirim jawaban final di server
+	if (promptType === "report_cash" && promptData) {
+		try {
+			const nfRupiah = new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", minimumFractionDigits: 0 });
+			const totalIn = nfRupiah.format(Number(promptData.total_in || 0));
+			const totalOut = nfRupiah.format(Number(promptData.total_out || 0));
+			const saldo = nfRupiah.format(Number(promptData.saldo_akhir || 0));
+			let whenLabel = 'hari ini';
+			if (parsedCommon && parsedCommon.tgl_awal) {
+				if (parsedCommon.tgl_awal === parsedCommon.tgl_akhir) whenLabel = formatDateIndo(parsedCommon.tgl_awal);
+				else whenLabel = `periode ${formatDateIndo(parsedCommon.tgl_awal)} sampai ${formatDateIndo(parsedCommon.tgl_akhir)}`;
+			}
+			const finalAnswer = `Total cash ${whenLabel}: masuk ${totalIn}, keluar ${totalOut}, saldo akhir ${saldo}.`;
+			res.write(`data: ${finalAnswer}\n\n`);
+			res.write(`event: done\ndata: {"status":"done"}\n\n`);
+			res.end();
+			return;
+		} catch (e) {}
+	}
+
+	// Jika kita sudah punya data laporan non-cash, kirim jawaban final di server
+	if (promptType === "report_non_cash" && promptData) {
+		try {
+			const nfRupiah = new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", minimumFractionDigits: 0 });
+			const totalIn = nfRupiah.format(Number(promptData.total_in || 0));
+			const totalOut = nfRupiah.format(Number(promptData.total_out || 0));
+			const saldo = nfRupiah.format(Number(promptData.saldo_akhir || 0));
+			let whenLabel = 'hari ini';
+			if (parsedCommon && parsedCommon.tgl_awal) {
+				if (parsedCommon.tgl_awal === parsedCommon.tgl_akhir) whenLabel = formatDateIndo(parsedCommon.tgl_awal);
+				else whenLabel = `periode ${formatDateIndo(parsedCommon.tgl_awal)} sampai ${formatDateIndo(parsedCommon.tgl_akhir)}`;
+			}
+			const finalAnswer = `Total non-cash ${whenLabel}: masuk ${totalIn}, keluar ${totalOut}, saldo akhir ${saldo}.`;
+			res.write(`data: ${finalAnswer}\n\n`);
+			res.write(`event: done\ndata: {"status":"done"}\n\n`);
+			res.end();
+			return;
+		} catch (e) {}
+	}
+
+	// Jika kita sudah punya data transaksi service, kirim jawaban final di server
+	if (promptType === "service" && promptData) {
+		try {
+			const nfInt = new Intl.NumberFormat("id-ID");
+			const nfDec = new Intl.NumberFormat("id-ID", { minimumFractionDigits: 1, maximumFractionDigits: 3 });
+			const nfRupiah = new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", minimumFractionDigits: 0 });
+			const qty = nfInt.format(Number(promptData.total_qty || 0));
+			const berat = nfDec.format(Number(promptData.total_berat || 0));
+			const totalRp = nfRupiah.format(Number(promptData.total_rp || 0));
+			let whenLabel = 'hari ini';
+			if (parsedCommon && parsedCommon.tgl_awal) {
+				if (parsedCommon.tgl_awal === parsedCommon.tgl_akhir) whenLabel = formatDateIndo(parsedCommon.tgl_awal);
+				else whenLabel = `periode ${formatDateIndo(parsedCommon.tgl_awal)} sampai ${formatDateIndo(parsedCommon.tgl_akhir)}`;
+			}
+			const finalAnswer = `Total service ${whenLabel}: ${qty} transaksi, berat ${berat} gram, total ${totalRp}.`;
+			res.write(`data: ${finalAnswer}\n\n`);
+			res.write(`event: done\ndata: {"status":"done"}\n\n`);
+			res.end();
+			return;
+		} catch (e) {}
 	}
 
 	try {
