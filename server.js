@@ -185,26 +185,6 @@ app.get("/stream/ask", async (req, res) => {
 			// fallback
 		}
 	}
-	// Deteksi laporan penjualan per sales
-	if (!promptType && /sales|sales terbaik|sales mana|penjualan sales|penjualan per sales|sales terbanyak/i.test(question)) {
-		promptType = "penjualan_sales";
-		console.log('SSE detect -> penjualan_sales');
-		try { fs.appendFileSync('/tmp/sse_debug.log', `detect:penjualan_sales\n`); } catch(e){}
-		try {
-			let tgl_awal = dayjs().format("YYYY-MM-DD");
-			let tgl_akhir = tgl_awal;
-			if (parsedCommon && parsedCommon.tgl_awal) tgl_awal = parsedCommon.tgl_awal;
-			if (parsedCommon && parsedCommon.tgl_akhir) tgl_akhir = parsedCommon.tgl_akhir || tgl_awal;
-			const getPenjSales = functionDeclarations.find(f => f.name === "getPenjualanSales");
-			if (getPenjSales) {
-				promptData = await getPenjSales.func({ tgl_awal, tgl_akhir });
-				promptMeta.tgl_awal = tgl_awal;
-				promptMeta.tgl_akhir = tgl_akhir;
-			}
-		} catch (e) {
-			// fallback
-		}
-	}
 	// Deteksi laporan pembelian
 	if (!promptType && /pembelian|laporan pembelian|transaksi pembelian|total pembelian/i.test(question)) {
 		promptType = "pembelian";
@@ -218,6 +198,26 @@ app.get("/stream/ask", async (req, res) => {
 			const getPemb = functionDeclarations.find(f => f.name === "getPembelian");
 			if (getPemb) {
 				promptData = await getPemb.func({ tgl_awal, tgl_akhir });
+				promptMeta.tgl_awal = tgl_awal;
+				promptMeta.tgl_akhir = tgl_akhir;
+			}
+		} catch (e) {
+			// fallback
+		}
+	}
+	// Deteksi laporan penjualan per sales
+	if (!promptType && /penjualan sales|penjualan per sales|sales terbaik|sales terbanyak|sales mana/i.test(question)) {
+		promptType = "penjualan_sales";
+		console.log('SSE detect -> penjualan_sales');
+		try { fs.appendFileSync('/tmp/sse_debug.log', `detect:penjualan_sales\n`); } catch(e){}
+		try {
+			let tgl_awal = dayjs().format("YYYY-MM-DD");
+			let tgl_akhir = tgl_awal;
+			if (parsedCommon && parsedCommon.tgl_awal) tgl_awal = parsedCommon.tgl_awal;
+			if (parsedCommon && parsedCommon.tgl_akhir) tgl_akhir = parsedCommon.tgl_akhir || tgl_awal;
+			const getPenjSales = functionDeclarations.find(f => f.name === "getPenjualanSales");
+			if (getPenjSales) {
+				promptData = await getPenjSales.func({ tgl_awal, tgl_akhir });
 				promptMeta.tgl_awal = tgl_awal;
 				promptMeta.tgl_akhir = tgl_akhir;
 			}
