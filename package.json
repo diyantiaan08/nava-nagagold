@@ -4,7 +4,7 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node --test",
     "dev:be": "nodemon server.js",
     "dev:fe": "npm --prefix nava-fe run dev:fe",
     "dev": "npx concurrently \"npm run dev:be\" \"npm run dev:fe\"",
