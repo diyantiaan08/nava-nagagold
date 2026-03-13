@@ -71,7 +71,7 @@ test("stream ask returns deterministic formatted answer and done event", async (
   const body = res.getBody();
   const events = parseSse(body);
   assert.equal(events.at(-1).event, "done");
-  assert.match(body, /Data penjualan tanggal 10 Maret 2026/);
+  assert.match(body, /Untuk penjualan pada 10 Maret 2026/);
 });
 
 test("stream ask returns missing token error without model fallback", async () => {
@@ -139,5 +139,95 @@ test("stream ask returns auth error without model fallback", async () => {
 
   const body = res.getBody();
   assert.match(body, /token tidak valid atau kedaluwarsa/);
+  assert.equal(modelCalled, false);
+});
+
+test("stream ask handles greeting without calling model", async () => {
+  let modelCalled = false;
+  const handler = createStreamAskHandler({
+    streamModelResponse: async () => {
+      modelCalled = true;
+    },
+  });
+
+  const req = { query: { question: "hallo" }, headers: {} };
+  const res = createMockResponse();
+  await handler(req, res);
+
+  const body = res.getBody();
+  assert.match(body, /Halo, saya asisten virtual/);
+  assert.equal(modelCalled, false);
+});
+
+test("stream ask handles thanks without looping offer", async () => {
+  let modelCalled = false;
+  const handler = createStreamAskHandler({
+    streamModelResponse: async () => {
+      modelCalled = true;
+    },
+  });
+
+  const req = { query: { question: "terima kasih" }, headers: {} };
+  const res = createMockResponse();
+  await handler(req, res);
+
+  const body = res.getBody();
+  assert.match(body, /Sama-sama/);
+  assert.equal(modelCalled, false);
+});
+
+test("stream ask avoids hallucinated data when intent is not resolved", async () => {
+  let modelCalled = false;
+  const handler = createStreamAskHandler({
+    resolveIntent: () => ({
+      type: null,
+      matchedFunction: null,
+      dateRange: { tgl_awal: "2026-03-10", tgl_akhir: "2026-03-10" },
+      args: { tgl_awal: "2026-03-10", tgl_akhir: "2026-03-10" },
+      requiresAuth: false,
+      responseMode: "model_fallback",
+      confidence: 0,
+      reason: "no_match",
+      question: "berapa sesuatu yang tidak dipahami",
+    }),
+    streamModelResponse: async () => {
+      modelCalled = true;
+    },
+  });
+
+  const req = { query: { question: "berapa sesuatu yang tidak dipahami" }, headers: {} };
+  const res = createMockResponse();
+  await handler(req, res);
+
+  const body = res.getBody();
+  assert.match(body, /saya belum memahami maksud pertanyaan data tersebut dengan tepat/i);
+  assert.equal(modelCalled, false);
+});
+
+test("stream ask blocks unsupported customer loyalty question from model fallback", async () => {
+  let modelCalled = false;
+  const handler = createStreamAskHandler({
+    resolveIntent: () => ({
+      type: null,
+      matchedFunction: null,
+      dateRange: {},
+      args: {},
+      requiresAuth: false,
+      responseMode: "model_fallback",
+      confidence: 0,
+      reason: "no_match",
+      question: "pelanggan mana yg paling loyal?",
+    }),
+    streamModelResponse: async () => {
+      modelCalled = true;
+    },
+  });
+
+  const req = { query: { question: "pelanggan mana yg paling loyal?" }, headers: {} };
+  const res = createMockResponse();
+  await handler(req, res);
+
+  const body = res.getBody();
+  assert.match(body, /tidak ingin memberikan jawaban yang berisiko salah/i);
   assert.equal(modelCalled, false);
 });

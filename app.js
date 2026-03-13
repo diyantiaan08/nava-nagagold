@@ -8,6 +8,7 @@ import { resolveIntent as defaultResolveIntent } from "./intent_resolver.js";
 import { executeIntent as defaultExecuteIntent, safeCallGlobal } from "./intent_executor.js";
 import { formatAnswer as defaultFormatAnswer, formatExecutionError } from "./response_formatter.js";
 import { DEFAULT_SYSTEM_PROMPT, streamModelResponse as defaultStreamModelResponse } from "./ollama_stream.js";
+import { getSmalltalkResponse } from "./smalltalk.js";
 import {
   appendDebugLog,
   endSse,
@@ -16,6 +17,12 @@ import {
   writeSseData,
   writeSseEvent,
 } from "./chat_utils.js";
+
+function isLikelyDataQuestion(question = "") {
+  return /\b(berapa|siapa|mana|jumlah|total|omzet|stok|stock|penjualan|pembelian|hutang|margin|cash|non(?:-|\s)?cash|service|sales|jual|menjual|laporan|saldo|pelanggan|customer|member|loyal|barang|produk|transaksi)\b/i.test(
+    String(question || "")
+  );
+}
 
 export function createStreamAskHandler(options = {}) {
   const declarations = options.functionDeclarations || functionDeclarations;
@@ -34,7 +41,23 @@ export function createStreamAskHandler(options = {}) {
     writeSseEvent(res, "thinking", "<think>");
 
     appendDebugLog(`question_check:${question}`);
+    const smalltalkResponse = getSmalltalkResponse(question);
+    if (smalltalkResponse) {
+      writeSseData(res, smalltalkResponse);
+      endSse(res);
+      return;
+    }
+
     const resolution = resolveIntent(question, { declarations });
+    if (!resolution.type && isLikelyDataQuestion(question)) {
+      writeSseData(
+        res,
+        "Maaf, saya belum memahami maksud pertanyaan data tersebut dengan tepat. Coba gunakan kalimat yang lebih spesifik, misalnya menyebut penjualan, pembelian, stok, hutang, cash, non-cash, service, atau sales."
+      );
+      endSse(res);
+      return;
+    }
+
     const execution = await executeIntent(resolution, req);
 
     appendDebugLog(

@@ -27,3 +27,15 @@ test("resolveIntent prioritizes margin over penjualan umum", () => {
   const result = resolveIntent("berapa margin penjualan kemarin");
   assert.equal(result.type, "margin_penjualan");
 });
+
+test("resolveIntent maps omzet question to penjualan report", () => {
+  const result = resolveIntent("berapa omzet saya kemarin?");
+  assert.equal(result.type, "penjualan_report");
+  assert.equal(result.matchedFunction?.name, "getPenjualanAnnual");
+});
+
+test("resolveIntent maps menjual phrasing to penjualan sales", () => {
+  const result = resolveIntent("kalau sales yg paling banyak menjual hari kemarin siapa?");
+  assert.equal(result.type, "penjualan_sales");
+  assert.equal(result.matchedFunction?.name, "getPenjualanSales");
+});
