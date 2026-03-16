@@ -31,3 +31,21 @@ test("parseDatePhrase handles Indonesian explicit dates and ranges", () => {
     tgl_akhir: "2026-03-07",
   });
 });
+
+test("parseDatePhrase handles month-only references", () => {
+  assert.deepEqual(parseDatePhrase("bulan februari"), {
+    tgl_awal: "2026-02-01",
+    tgl_akhir: "2026-02-28",
+  });
+  assert.deepEqual(parseDatePhrase("bulan februari 2026"), {
+    tgl_awal: "2026-02-01",
+    tgl_akhir: "2026-02-28",
+  });
+});
+
+test("parseDatePhrase handles year-only references", () => {
+  assert.deepEqual(parseDatePhrase("tahun 2025"), {
+    tgl_awal: "2025-01-01",
+    tgl_akhir: "2025-12-31",
+  });
+});

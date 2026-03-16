@@ -2,13 +2,12 @@ import axios from "axios";
 import dayjs from "dayjs";
 import { API_PATHS } from "./api_endpoints.js";
 
-const BASE_URL = process.env.TKM_BASE_URL || "https://tkmputri.goldstore.id";
-
 /**
  * Ambil laporan transaksi service untuk rentang tanggal.
  * Mengembalikan agregat: total_qty, total_berat, total_rp, dan rows.
  */
 export async function getService({ tgl_awal, tgl_akhir, valid_by = "ALL", token: tokenParam, incomingHeaders } = {}) {
+  const BASE_URL = process.env.TKM_BASE_URL || "https://tkmputri.goldstore.id";
   const tglAwal = tgl_awal || dayjs().format("YYYY-MM-DD");
   const tglAkhir = tgl_akhir || tglAwal;
   const payload = {

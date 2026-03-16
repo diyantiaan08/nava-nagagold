@@ -2,13 +2,12 @@ import axios from "axios";
 import dayjs from "dayjs";
 import { API_PATHS } from "./api_endpoints.js";
 
-const BASE_URL = process.env.TKM_BASE_URL || "https://tkmputri.goldstore.id";
-
 /**
  * Ambil laporan penjualan marketplace (online) untuk rentang tanggal.
  * Mengembalikan total qty, total berat, total rupiah dan rows mentah.
  */
 export async function getPenjualanMarketplace({ tgl_from, tgl_to, marketplace = "SEMUA", kode_group = "ALL", jenis_group = "ALL", valid_by = "ALL", token: tokenParam, incomingHeaders } = {}) {
+  const BASE_URL = process.env.TKM_BASE_URL || "https://tkmputri.goldstore.id";
   const from = tgl_from || dayjs().format("YYYY-MM-DD");
   const to = tgl_to || from;
   const payload = {

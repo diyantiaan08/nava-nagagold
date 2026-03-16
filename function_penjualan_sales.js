@@ -2,13 +2,12 @@ import axios from "axios";
 import dayjs from "dayjs";
 import { API_PATHS } from "./api_endpoints.js";
 
-const BASE_URL = process.env.TKM_BASE_URL || "https://tkmputri.goldstore.id";
-
 /**
  * Ambil laporan penjualan per sales untuk rentang tanggal.
  * Mengembalikan array rows dan agregat per sales (qty, berat, rupiah)
  */
 export async function getPenjualanSales({ uid, tgl_awal, tgl_akhir, type = "REKAP", status_baru = false, token: tokenParam, incomingHeaders } = {}) {
+  const BASE_URL = process.env.TKM_BASE_URL || "https://tkmputri.goldstore.id";
   const tglAwal = tgl_awal || dayjs().format("YYYY-MM-DD");
   const tglAkhir = tgl_akhir || tglAwal;
   const payload = {
@@ -38,9 +37,22 @@ export async function getPenjualanSales({ uid, tgl_awal, tgl_akhir, type = "REKA
     data = resp.data;
   } catch (err) {
     const status = err && err.response && err.response.status;
+    const responseData = err && err.response && err.response.data;
     if (status === 404 || status === 405) {
-      const resp2 = await axios.get(urlWithToken, { params: payload, headers });
-      data = resp2.data;
+      try {
+        const resp2 = await axios.get(urlWithToken, { params: payload, headers });
+        data = resp2.data;
+      } catch (fallbackErr) {
+        const fallbackStatus = fallbackErr && fallbackErr.response && fallbackErr.response.status;
+        const fallbackData = fallbackErr && fallbackErr.response && fallbackErr.response.data;
+        if (fallbackStatus === 500 && /tidak ditemukan/i.test(String(fallbackData || ""))) {
+          data = [];
+        } else {
+          throw fallbackErr;
+        }
+      }
+    } else if (status === 500 && /tidak ditemukan/i.test(String(responseData || ""))) {
+      data = [];
     } else {
       throw err;
     }

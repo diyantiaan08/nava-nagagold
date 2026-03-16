@@ -12,6 +12,7 @@ export const API_PATHS = {
   getHutangLunasReport: "/api/v1/hutang/get/reportlunas",
   getReportCash: "/api/v1/reportcash/rekap",
   getReportNonCash: "/api/v1/report-non-cash",
+  getPesananReport: "/api/v1/pesanan/reports",
   // Tambahkan path lain di sini, misal:
   // getPembelianDaily: "/api/v1/pembelian/report",
 };

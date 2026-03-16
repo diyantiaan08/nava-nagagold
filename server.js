@@ -1,8 +1,6 @@
-import dotenv from "dotenv";
+import "dotenv/config";
 import { createApp } from "./app.js";
 import { appendDebugLog, maskToken } from "./chat_utils.js";
-
-dotenv.config();
 
 const hasToken = Boolean(process.env.TKM_TOKEN);
 console.log(`TKM_TOKEN present: ${hasToken} preview:${hasToken ? `${String(process.env.TKM_TOKEN).slice(0, 4)}...` : "N/A"}`);

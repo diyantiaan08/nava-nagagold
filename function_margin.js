@@ -3,8 +3,6 @@ import dayjs from "dayjs";
 import { API_PATHS } from "./api_endpoints.js";
 import { parseDatePhrase } from "./parseNaturalDate.js";
 
-const BASE_URL = process.env.TKM_BASE_URL || "https://tkmputri.goldstore.id";
-
 /**
  * Mengambil laporan margin penjualan untuk rentang tanggal.
  * @param {{ tgl_awal?: string, tgl_akhir?: string }} params
@@ -13,6 +11,7 @@ const BASE_URL = process.env.TKM_BASE_URL || "https://tkmputri.goldstore.id";
 import fs from "fs";
 
 export async function getMarginPenjualan({ tgl_awal, tgl_akhir, token: tokenParam, incomingHeaders } = {}) {
+  const BASE_URL = process.env.TKM_BASE_URL || "https://tkmputri.goldstore.id";
   let tglAwal = tgl_awal;
   let tglAkhir = tgl_akhir;
 

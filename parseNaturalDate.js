@@ -39,6 +39,29 @@ export function parseDatePhrase(text) {
         return { tgl_awal: start, tgl_akhir: end };
       }
     }
+
+    // match full month references: "bulan februari", "februari 2026", "bulan februari 2026"
+    const monthOnlyRe = new RegExp(`(?:\\bbulan\\s+)?(${monthKeys})(?:\\s+(\\d{4}))?\\b`, "i");
+    const monthOnlyMatch = lowered.match(monthOnlyRe);
+    if (monthOnlyMatch) {
+      const monthStr = monthOnlyMatch[1].toLowerCase();
+      const yearStr = monthOnlyMatch[2] || String(dayjs().year());
+      const month = monthNames[monthStr];
+      if (month) {
+        const start = dayjs(`${yearStr}-${String(month).padStart(2, "0")}-01`).startOf("month").format("YYYY-MM-DD");
+        const end = dayjs(start).endOf("month").format("YYYY-MM-DD");
+        return { tgl_awal: start, tgl_akhir: end };
+      }
+    }
+
+    // match year-only references: "tahun 2025"
+    const yearOnlyMatch = lowered.match(/\btahun\s+(\d{4})\b/i);
+    if (yearOnlyMatch) {
+      const yearStr = yearOnlyMatch[1];
+      const start = dayjs(`${yearStr}-01-01`).startOf("year").format("YYYY-MM-DD");
+      const end = dayjs(start).endOf("year").format("YYYY-MM-DD");
+      return { tgl_awal: start, tgl_akhir: end };
+    }
   } catch (e) {
     // ignore and fallback to other heuristics
   }

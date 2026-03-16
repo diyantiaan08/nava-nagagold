@@ -228,6 +228,40 @@ test("stream ask blocks unsupported customer loyalty question from model fallbac
   await handler(req, res);
 
   const body = res.getBody();
-  assert.match(body, /tidak ingin memberikan jawaban yang berisiko salah/i);
+  assert.match(body, /belum memahami maksud pertanyaan data tersebut dengan tepat/i);
   assert.equal(modelCalled, false);
+});
+
+test("stream ask formats pesanan response deterministically", async () => {
+  const handler = createStreamAskHandler({
+    resolveIntent: () => ({
+      type: "pesanan",
+      matchedFunction: { name: "getPesanan", type: "pesanan", authPolicy: "required" },
+      dateRange: { tgl_from: "2026-03-10", tgl_to: "2026-03-10", tgl_awal: "2026-03-10", tgl_akhir: "2026-03-10" },
+      args: { tgl_from: "2026-03-10", tgl_to: "2026-03-10" },
+      requiresAuth: true,
+      responseMode: "deterministic",
+      confidence: 100,
+      reason: "test",
+      question: "berapa laporan pesanan saya hari ini",
+    }),
+    executeIntent: async () => ({
+      status: "success",
+      type: "pesanan",
+      data: { total_qty: 4, total_berat: 7.5, total_rupiah: 2500000 },
+      meta: { dateRange: { tgl_from: "2026-03-10", tgl_to: "2026-03-10", tgl_awal: "2026-03-10", tgl_akhir: "2026-03-10" } },
+    }),
+    streamModelResponse: async () => {
+      throw new Error("model should not be called");
+    },
+  });
+
+  const req = { query: { question: "test", token: "abc" }, headers: {} };
+  const res = createMockResponse();
+  await handler(req, res);
+
+  const body = res.getBody();
+  assert.match(body, /laporan pesanan pada 10 Maret 2026/i);
+  assert.match(body, /4 item pesanan/i);
+  assert.match(body, /Rp/);
 });

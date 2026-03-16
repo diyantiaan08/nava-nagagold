@@ -28,28 +28,28 @@ export function formatAnswer(type, data, meta = {}, question = "") {
 
   if (type === "stock") {
     const gudang = data.gudang || "TOKO";
-    return `Untuk ${whenLabel}, total stok di gudang ${gudang} tercatat ${formatInteger(data.total_stock)} unit dengan berat ${formatDecimal(data.total_berat)} gram.`;
+    return `Untuk ${whenLabel}, total stok di gudang ${gudang} tercatat ${formatInteger(data.total_stock)} pcs dengan berat ${formatDecimal(data.total_berat)} gram.`;
   }
 
   if (type === "margin_penjualan") {
     if (specificDateLabel) {
-      return `Untuk penjualan ${specificDateLabel}, total penjualannya mencapai ${formatRupiah(data.total_penjualan)} dengan margin ${formatRupiah(data.total_margin)}. Jumlah yang terjual sebanyak ${formatInteger(data.total_qty)} unit dengan total berat ${formatDecimal(data.total_berat)} gram.`;
+      return `Untuk penjualan ${specificDateLabel}, total penjualannya mencapai ${formatRupiah(data.total_penjualan)} dengan margin ${formatRupiah(data.total_margin)}. Jumlah yang terjual sebanyak ${formatInteger(data.total_qty)} pcs dengan total berat ${formatDecimal(data.total_berat)} gram.`;
     }
-    return `Untuk periode ${whenLabel}, total penjualannya mencapai ${formatRupiah(data.total_penjualan)} dengan margin ${formatRupiah(data.total_margin)}. Jumlah yang terjual sebanyak ${formatInteger(data.total_qty)} unit dengan total berat ${formatDecimal(data.total_berat)} gram.`;
+    return `Untuk periode ${whenLabel}, total penjualannya mencapai ${formatRupiah(data.total_penjualan)} dengan margin ${formatRupiah(data.total_margin)}. Jumlah yang terjual sebanyak ${formatInteger(data.total_qty)} pcs dengan total berat ${formatDecimal(data.total_berat)} gram.`;
   }
 
   if (type === "penjualan_report") {
     if (specificDateLabel) {
-      return `Untuk penjualan ${specificDateLabel}, total nilainya ${formatRupiah(data.total_rupiah)}. Jumlah barang yang terjual ${formatInteger(data.total_qty)} unit dengan total berat ${formatDecimal(data.total_berat)} gram.`;
+      return `Untuk penjualan ${specificDateLabel}, total nilainya ${formatRupiah(data.total_rupiah)}. Jumlah barang yang terjual ${formatInteger(data.total_qty)} pcs dengan total berat ${formatDecimal(data.total_berat)} gram.`;
     }
-    return `Untuk periode ${whenLabel}, total penjualannya ${formatRupiah(data.total_rupiah)}. Jumlah barang yang terjual ${formatInteger(data.total_qty)} unit dengan total berat ${formatDecimal(data.total_berat)} gram.`;
+    return `Untuk periode ${whenLabel}, total penjualannya ${formatRupiah(data.total_rupiah)}. Jumlah barang yang terjual ${formatInteger(data.total_qty)} pcs dengan total berat ${formatDecimal(data.total_berat)} gram.`;
   }
 
   if (type === "penjualan_marketplace") {
     if (specificDateLabel) {
-      return `Untuk penjualan marketplace ${specificDateLabel}, total nilainya ${formatRupiah(data.total_rupiah)}. Ada ${formatInteger(data.total_qty)} unit terjual dengan total berat ${formatDecimal(data.total_berat)} gram.`;
+      return `Untuk penjualan marketplace ${specificDateLabel}, total nilainya ${formatRupiah(data.total_rupiah)}. Ada ${formatInteger(data.total_qty)} pcs terjual dengan total berat ${formatDecimal(data.total_berat)} gram.`;
     }
-    return `Untuk penjualan marketplace ${whenLabel}, total nilainya ${formatRupiah(data.total_rupiah)}. Ada ${formatInteger(data.total_qty)} unit terjual dengan total berat ${formatDecimal(data.total_berat)} gram.`;
+    return `Untuk penjualan marketplace ${whenLabel}, total nilainya ${formatRupiah(data.total_rupiah)}. Ada ${formatInteger(data.total_qty)} pcs terjual dengan total berat ${formatDecimal(data.total_berat)} gram.`;
   }
 
   if (type === "penjualan_sales") {
@@ -60,7 +60,7 @@ export function formatAnswer(type, data, meta = {}, question = "") {
     const sortBy = getSalesSortKey(question, "qty");
     const rows = [...aggregates].sort((left, right) => Number(right[sortBy] || 0) - Number(left[sortBy] || 0));
     const top = rows[0];
-    return `Sales dengan performa penjualan tertinggi berdasarkan ${sortBy} adalah ${top.kode_sales}. Ia mencatat ${formatInteger(top.qty)} unit, total berat ${formatDecimal(top.berat)} gram, dengan nilai penjualan ${formatRupiah(top.rupiah)}.`;
+    return `Sales dengan performa penjualan tertinggi berdasarkan ${sortBy} adalah ${top.kode_sales}. Ia mencatat ${formatInteger(top.qty)} pcs, total berat ${formatDecimal(top.berat)} gram, dengan nilai penjualan ${formatRupiah(top.rupiah)}.`;
   }
 
   if (type === "pembelian") {
@@ -76,7 +76,7 @@ export function formatAnswer(type, data, meta = {}, question = "") {
     const rows = [...aggregates].sort((left, right) => Number(right[sortBy] || 0) - Number(left[sortBy] || 0));
     const top = rows[0];
     const name = top.nama_sales || top.nama || top.kode_sales || "";
-    return `Sales yang paling banyak melayani pembelian berdasarkan ${sortBy} adalah ${name}. Totalnya ${formatInteger(top.jumlah)} unit dengan berat ${formatDecimal(top.berat)} gram dan nilai ${formatRupiah(top.harga)}.`;
+    return `Sales yang paling banyak melayani pembelian berdasarkan ${sortBy} adalah ${name}. Totalnya ${formatInteger(top.jumlah)} pcs dengan berat ${formatDecimal(top.berat)} gram dan nilai ${formatRupiah(top.harga)}.`;
   }
 
   if (type === "hutang") {
@@ -97,6 +97,13 @@ export function formatAnswer(type, data, meta = {}, question = "") {
 
   if (type === "service") {
     return `Untuk layanan service ${whenLabel}, tercatat ${formatInteger(data.total_qty)} transaksi dengan total berat ${formatDecimal(data.total_berat)} gram. Nilai transaksinya ${formatRupiah(data.total_rp)}.`;
+  }
+
+  if (type === "pesanan") {
+    if (specificDateLabel) {
+      return `Untuk laporan pesanan ${specificDateLabel}, tercatat ${formatInteger(data.total_qty)} item pesanan dengan total berat ${formatDecimal(data.total_berat)} gram. Total pembayaran yang sudah masuk sebesar ${formatRupiah(data.total_rupiah)}.`;
+    }
+    return `Untuk laporan pesanan ${whenLabel}, tercatat ${formatInteger(data.total_qty)} item pesanan dengan total berat ${formatDecimal(data.total_berat)} gram. Total pembayaran yang sudah masuk sebesar ${formatRupiah(data.total_rupiah)}.`;
   }
 
   return null;
@@ -124,6 +131,7 @@ export function formatExecutionError(type, meta = {}) {
     report_cash: "data cash",
     report_non_cash: "data non-cash",
     service: "data service",
+    pesanan: "data pesanan",
   };
 
   const label = labels[type] || "data";

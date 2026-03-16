@@ -19,7 +19,7 @@ import {
 } from "./chat_utils.js";
 
 function isLikelyDataQuestion(question = "") {
-  return /\b(berapa|siapa|mana|jumlah|total|omzet|stok|stock|penjualan|pembelian|hutang|margin|cash|non(?:-|\s)?cash|service|sales|jual|menjual|laporan|saldo|pelanggan|customer|member|loyal|barang|produk|transaksi)\b/i.test(
+  return /\b(berapa|siapa|mana|jumlah|total|omzet|stok|stock|penjualan|pembelian|hutang|margin|cash|non(?:-|\s)?cash|service|sales|jual|menjual|laporan|saldo|pelanggan|customer|member|loyal|barang|produk|transaksi|pesanan|custom)\b/i.test(
     String(question || "")
   );
 }
@@ -171,6 +171,7 @@ export function createApp(options = {}) {
       { name: "getPenjualanAnnual", args: { tgl_awal: date, tgl_akhir: date } },
       { name: "getReportCash", args: { tgl_from: date, tgl_to: date } },
       { name: "getReportNonCash", args: { tgl_from: date, tgl_to: date } },
+      { name: "getPesanan", args: { tgl_from: date, tgl_to: date } },
       { name: "getService", args: { tgl_awal: date, tgl_akhir: date } },
     ];
     const out = {};

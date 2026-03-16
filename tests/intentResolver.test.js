@@ -39,3 +39,9 @@ test("resolveIntent maps menjual phrasing to penjualan sales", () => {
   assert.equal(result.type, "penjualan_sales");
   assert.equal(result.matchedFunction?.name, "getPenjualanSales");
 });
+
+test("resolveIntent maps pesanan question to getPesanan", () => {
+  const result = resolveIntent("berapa laporan pesanan saya minggu ini?");
+  assert.equal(result.type, "pesanan");
+  assert.equal(result.matchedFunction?.name, "getPesanan");
+});

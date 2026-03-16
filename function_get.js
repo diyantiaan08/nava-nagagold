@@ -3,8 +3,6 @@ import dayjs from "dayjs";
 import { API_PATHS } from "./api_endpoints.js";
 import { parseDatePhrase } from "./parseNaturalDate.js";
 
-const BASE_URL = process.env.TKM_BASE_URL || "https://tkmputri.goldstore.id";
-
 /**
  * Mengambil total stock_akhir dan berat_akhir berdasarkan Gudang.
  * @param {Object} params - { tanggal, gudang }
@@ -13,6 +11,7 @@ const BASE_URL = process.env.TKM_BASE_URL || "https://tkmputri.goldstore.id";
 import fs from "fs";
 
 export async function getItem({ tanggal, gudang, token, incomingHeaders } = {}) {
+	const BASE_URL = process.env.TKM_BASE_URL || "https://tkmputri.goldstore.id";
 	const kode_gudang = gudang ? [gudang] : ["TOKO"];
 	// resolve natural-language tanggal (e.g. "kemarin", "minggu lalu")
 	let resolvedTanggal = tanggal;
