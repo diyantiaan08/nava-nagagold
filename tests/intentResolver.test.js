@@ -45,3 +45,10 @@ test("resolveIntent maps pesanan question to getPesanan", () => {
   assert.equal(result.type, "pesanan");
   assert.equal(result.matchedFunction?.name, "getPesanan");
 });
+
+test("resolveIntent maps top member question and infers point sorting", () => {
+  const result = resolveIntent("siapa top member dengan point tertinggi bulan ini?");
+  assert.equal(result.type, "top_member");
+  assert.equal(result.matchedFunction?.name, "getTopMember");
+  assert.equal(result.args.sort_by, "trx_point");
+});

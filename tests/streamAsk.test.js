@@ -265,3 +265,48 @@ test("stream ask formats pesanan response deterministically", async () => {
   assert.match(body, /4 item pesanan/i);
   assert.match(body, /Rp/);
 });
+
+test("stream ask formats top member response deterministically", async () => {
+  const handler = createStreamAskHandler({
+    resolveIntent: () => ({
+      type: "top_member",
+      matchedFunction: { name: "getTopMember", type: "top_member", authPolicy: "required" },
+      dateRange: { tgl_from: "2026-03-01", tgl_to: "2026-03-17", tgl_awal: "2026-03-01", tgl_akhir: "2026-03-17" },
+      args: { tgl_from: "2026-03-01", tgl_to: "2026-03-17", sort_by: "trx_count" },
+      requiresAuth: true,
+      responseMode: "deterministic",
+      confidence: 100,
+      reason: "test",
+      question: "siapa member paling sering belanja bulan ini",
+    }),
+    executeIntent: async () => ({
+      status: "success",
+      type: "top_member",
+      data: {
+        sort_by: "trx_count",
+        top_member: {
+          kode_member: "P000009755",
+          nama_member: "YARIS",
+          total_transaksi: 4,
+          total_rp: 13187500,
+          total_point: 207,
+        },
+        rows: [],
+      },
+      meta: { dateRange: { tgl_from: "2026-03-01", tgl_to: "2026-03-17", tgl_awal: "2026-03-01", tgl_akhir: "2026-03-17" } },
+    }),
+    streamModelResponse: async () => {
+      throw new Error("model should not be called");
+    },
+  });
+
+  const req = { query: { question: "test", token: "abc" }, headers: {} };
+  const res = createMockResponse();
+  await handler(req, res);
+
+  const body = res.getBody();
+  assert.match(body, /member dengan aktivitas belanja tertinggi berdasarkan jumlah transaksi/i);
+  assert.match(body, /YARIS/i);
+  assert.match(body, /P000009755/i);
+  assert.match(body, /207/);
+});

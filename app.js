@@ -172,6 +172,7 @@ export function createApp(options = {}) {
       { name: "getReportCash", args: { tgl_from: date, tgl_to: date } },
       { name: "getReportNonCash", args: { tgl_from: date, tgl_to: date } },
       { name: "getPesanan", args: { tgl_from: date, tgl_to: date } },
+      { name: "getTopMember", args: { tgl_from: date, tgl_to: date } },
       { name: "getService", args: { tgl_awal: date, tgl_akhir: date } },
     ];
     const out = {};

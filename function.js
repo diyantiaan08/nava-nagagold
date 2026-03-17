@@ -5,6 +5,7 @@ import { getPenjualanMarketplace } from "./function_penjualan_marketplace.js";
 import { getPenjualanSales } from "./function_penjualan_sales.js";
 import { getPembelian, getPembelianSales } from "./function_pembelian.js";
 import { getPesanan } from "./function_pesanan.js";
+import { getTopMember } from "./function_top_member.js";
 import { getService } from "./function_service.js";
 import { getHutang, getHutangLunas } from "./function_hutang.js";
 import { getReportCash } from "./function_reportcash.js";
@@ -18,6 +19,7 @@ export { getItem,
     getPembelian,
     getPembelianSales,
     getPesanan,
+    getTopMember,
     getService,
     getHutang,
     getHutangLunas,

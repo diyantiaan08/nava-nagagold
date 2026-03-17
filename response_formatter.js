@@ -20,6 +20,18 @@ function describeSpecificDate(dateRange) {
   return null;
 }
 
+function describeTopMemberSort(sortBy) {
+  if (sortBy === "trx_point") return "point";
+  if (sortBy === "trx_rp") return "nominal belanja";
+  return "jumlah transaksi";
+}
+
+function buildTopMemberWhenLabel(whenLabel, specificDateLabel) {
+  if (specificDateLabel) return specificDateLabel;
+  if (String(whenLabel).startsWith("periode ")) return whenLabel;
+  return `periode ${whenLabel}`;
+}
+
 export function formatAnswer(type, data, meta = {}, question = "") {
   if (!type || !data) return null;
   const dateRange = meta.dateRange || {};
@@ -106,6 +118,16 @@ export function formatAnswer(type, data, meta = {}, question = "") {
     return `Untuk laporan pesanan ${whenLabel}, tercatat ${formatInteger(data.total_qty)} item pesanan dengan total berat ${formatDecimal(data.total_berat)} gram. Total pembayaran yang sudah masuk sebesar ${formatRupiah(data.total_rupiah)}.`;
   }
 
+  if (type === "top_member") {
+    const topMember = data.top_member;
+    if (!topMember) {
+      return "Maaf, tidak ada data top member untuk periode yang diminta.";
+    }
+    const sortLabel = describeTopMemberSort(data.sort_by || meta.sort_by);
+    const topMemberWhenLabel = buildTopMemberWhenLabel(whenLabel, specificDateLabel);
+    return `Untuk ${topMemberWhenLabel}, member dengan aktivitas belanja tertinggi berdasarkan ${sortLabel} adalah ${topMember.nama_member} dengan kode member ${topMember.kode_member}. Selama periode ini, tercatat ${formatInteger(topMember.total_transaksi)} transaksi dengan total belanja ${formatRupiah(topMember.total_rp)} dan total point ${formatInteger(topMember.total_point)}.`;
+  }
+
   return null;
 }
 
@@ -132,6 +154,7 @@ export function formatExecutionError(type, meta = {}) {
     report_non_cash: "data non-cash",
     service: "data service",
     pesanan: "data pesanan",
+    top_member: "data top member",
   };
 
   const label = labels[type] || "data";

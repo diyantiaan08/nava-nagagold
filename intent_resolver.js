@@ -7,12 +7,19 @@ const SPECIAL_SIGNALS = {
   pembelian: /\bpembelian\b/i,
   penjualan: /\bpenjualan\b/i,
   sales: /\bsales\b/i,
+  member: /\bmember\b/i,
   marketplace: /\bmarketplace\b|\btokopedia\b|\bshopee\b|\blazada\b|\bonline\b/i,
   hutangLunas: /\bhutang lunas\b|\blunas hutang\b|pelunasan hutang|\bsudah dilunasi\b/i,
   nonCash: /\bnon(?:-|\s)?cash\b|transfer|debet|kredit|rekening|rekening bank/i,
   cash: /\bcash\b|\bkas\b|saldo kas|uang kas|total kas/i,
   margin: /\bmargin\b|\blaba\b|\bkeuntungan\b/i,
 };
+
+function detectTopMemberSortBy(question = "") {
+  if (/\b(point|poin)\b/i.test(question)) return "trx_point";
+  if (/\b(nominal|rupiah|rp|belanja terbesar|nilai belanja|omzet member)\b/i.test(question)) return "trx_rp";
+  return "trx_count";
+}
 
 function buildDateRange(dateMode, parsedDate) {
   const today = dayjs().format("YYYY-MM-DD");
@@ -147,6 +154,10 @@ export function resolveIntent(question, options = {}) {
     parsedDate,
     question,
   };
+
+  if (matchedFunction && matchedFunction.type === "top_member") {
+    result.args.sort_by = detectTopMemberSortBy(question);
+  }
 
   appendDebugLog(
     `intent_resolution:${JSON.stringify({
