@@ -6,8 +6,8 @@ import { API_PATHS } from "./api_endpoints.js";
  * Ambil laporan penjualan per sales untuk rentang tanggal.
  * Mengembalikan array rows dan agregat per sales (qty, berat, rupiah)
  */
-export async function getPenjualanSales({ uid, tgl_awal, tgl_akhir, type = "REKAP", status_baru = false, token: tokenParam, incomingHeaders } = {}) {
-  const BASE_URL = process.env.TKM_BASE_URL || "https://tkmputri.goldstore.id";
+export async function getPenjualanSales({ uid, tgl_awal, tgl_akhir, type = "REKAP", status_baru = false, token: tokenParam, baseUrl, incomingHeaders } = {}) {
+  const BASE_URL = baseUrl || process.env.TKM_BASE_URL || "https://tkmputri.goldstore.id";
   const tglAwal = tgl_awal || dayjs().format("YYYY-MM-DD");
   const tglAkhir = tgl_akhir || tglAwal;
   const payload = {

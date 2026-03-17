@@ -7,8 +7,8 @@ import { API_PATHS } from "./api_endpoints.js";
  * Params: kategori, tgl_from, tgl_to, user_id, user_login, is_sort
  * Returns { total_in, total_out, saldo_akhir, rows }
  */
-export async function getReportCash({ kategori = "ALL", tgl_from, tgl_to, user_id = "ALL", user_login = "ALL", is_sort = false, token: tokenParam, incomingHeaders } = {}) {
-  const BASE_URL = process.env.TKM_BASE_URL || "https://tkmputri.goldstore.id";
+export async function getReportCash({ kategori = "ALL", tgl_from, tgl_to, user_id = "ALL", user_login = "ALL", is_sort = false, token: tokenParam, baseUrl, incomingHeaders } = {}) {
+  const BASE_URL = baseUrl || process.env.TKM_BASE_URL || "https://tkmputri.goldstore.id";
   const from = tgl_from || dayjs().format("YYYY-MM-DD");
   const to = tgl_to || from;
   const payload = {

@@ -8,9 +8,10 @@ export async function getPesanan({
   valid_by = "ALL",
   status_pesanan = "ALL",
   token: tokenParam,
+  baseUrl,
   incomingHeaders,
 } = {}) {
-  const BASE_URL = process.env.TKM_BASE_URL || "https://qc-cabang.nagatech.id";
+  const BASE_URL = baseUrl || process.env.TKM_BASE_URL || "https://qc-cabang.nagatech.id";
   const from = tgl_from || dayjs().format("YYYY-MM-DD");
   const to = tgl_to || from;
   const payload = {

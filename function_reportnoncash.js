@@ -8,8 +8,8 @@ import { API_PATHS } from "./api_endpoints.js";
  * Params: tgl_from, tgl_to, type, jenis, no_rekening, valid_by, user_id
  * Returns { total_in, total_out, saldo_akhir, rows }
  */
-export async function getReportNonCash({ tgl_from, tgl_to, type = "REKAP", jenis = "ALL", no_rekening = "ALL", valid_by = "ALL", user_id = "ALL", token: tokenParam, useSSE = false } = {}) {
-  const BASE_URL = process.env.TKM_BASE_URL || "https://tkmputri.goldstore.id";
+export async function getReportNonCash({ tgl_from, tgl_to, type = "REKAP", jenis = "ALL", no_rekening = "ALL", valid_by = "ALL", user_id = "ALL", token: tokenParam, baseUrl, useSSE = false } = {}) {
+  const BASE_URL = baseUrl || process.env.TKM_BASE_URL || "https://tkmputri.goldstore.id";
   const from = tgl_from || dayjs().format("YYYY-MM-DD");
   const to = tgl_to || from;
   const tokenToUse = tokenParam || process.env.TKM_TOKEN || "";

@@ -1,13 +1,17 @@
-import { RefreshCw, Moon, Sun } from 'lucide-react';
+import { RefreshCw, Moon, Sun, Settings2 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { ThemeSwitcher } from './ThemeSwitcher';
+import { isManualConnectionSettingsEnabled } from '../lib/connectionSettings';
 
 interface ChatHeaderProps {
   onReset: () => void;
+  onToggleSettings: () => void;
+  isSettingsOpen: boolean;
 }
 
-export function ChatHeader({ onReset }: ChatHeaderProps) {
+export function ChatHeader({ onReset, onToggleSettings, isSettingsOpen }: ChatHeaderProps) {
   const { colors, darkMode, setDarkMode } = useTheme();
+  const settingsEnabled = isManualConnectionSettingsEnabled();
 
   return (
     <div className={`bg-gradient-to-r ${colors.gradient} text-white p-4 shadow-md`}>
@@ -18,6 +22,15 @@ export function ChatHeader({ onReset }: ChatHeaderProps) {
         </div>
 
         <div className="flex items-center gap-2">
+          {settingsEnabled && (
+            <button
+              onClick={onToggleSettings}
+              className={`p-2 rounded-lg transition-colors ${isSettingsOpen ? 'bg-white/20' : 'hover:bg-white/10'}`}
+              title="Pengaturan Koneksi"
+            >
+              <Settings2 className="w-5 h-5" />
+            </button>
+          )}
           <button
             onClick={onReset}
             className="p-2 rounded-lg hover:bg-white/10 transition-colors"

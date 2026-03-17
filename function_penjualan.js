@@ -8,8 +8,8 @@ import fs from "fs";
  * Mengembalikan total qty, total berat, total rupiah dan rows mentah.
  * @param {{ tgl_awal?: string, tgl_akhir?: string, valid_by?: string, type?: string }} params
  */
-export async function getPenjualanAnnual({ tgl_awal, tgl_akhir, valid_by = "ALL", type = "SEMUA", is_consignment = false, is_consignment_barang = "ALL", kode_marketplace = "SEMUA", kasir = "ALL", supplier_barang = "ALL", token: tokenParam, incomingHeaders = {}, useSSE = false } = {}) {
-  const BASE_URL = process.env.TKM_BASE_URL || "https://tkmputri.goldstore.id";
+export async function getPenjualanAnnual({ tgl_awal, tgl_akhir, valid_by = "ALL", type = "SEMUA", is_consignment = false, is_consignment_barang = "ALL", kode_marketplace = "SEMUA", kasir = "ALL", supplier_barang = "ALL", token: tokenParam, baseUrl, incomingHeaders = {}, useSSE = false } = {}) {
+  const BASE_URL = baseUrl || process.env.TKM_BASE_URL || "https://tkmputri.goldstore.id";
   const tglAwal = tgl_awal || dayjs().format("YYYY-MM-DD");
   const tglAkhir = tgl_akhir || tglAwal;
   const tokenToUse = tokenParam || process.env.TKM_TOKEN || "";

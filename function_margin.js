@@ -10,8 +10,8 @@ import { parseDatePhrase } from "./parseNaturalDate.js";
  */
 import fs from "fs";
 
-export async function getMarginPenjualan({ tgl_awal, tgl_akhir, token: tokenParam, incomingHeaders } = {}) {
-  const BASE_URL = process.env.TKM_BASE_URL || "https://tkmputri.goldstore.id";
+export async function getMarginPenjualan({ tgl_awal, tgl_akhir, token: tokenParam, baseUrl, incomingHeaders } = {}) {
+  const BASE_URL = baseUrl || process.env.TKM_BASE_URL || "https://tkmputri.goldstore.id";
   let tglAwal = tgl_awal;
   let tglAkhir = tgl_akhir;
 

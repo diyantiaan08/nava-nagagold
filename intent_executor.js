@@ -1,4 +1,5 @@
-import { appendDebugLog, extractIncomingHeaders, extractTokenFromRequest, getAuthFailedMessage, getMissingTokenMessage, maskToken } from "./chat_utils.js";
+import { appendDebugLog, extractIncomingHeaders, getAuthFailedMessage, getMissingTokenMessage, maskToken } from "./chat_utils.js";
+import { resolveRequestConnection } from "./request_connection.js";
 
 export async function safeCallGlobal(fn, args) {
   try {
@@ -19,12 +20,12 @@ export async function safeCallGlobal(fn, args) {
   }
 }
 
-function buildFunctionArgs(resolution, req) {
-  const token = extractTokenFromRequest(req);
+function buildFunctionArgs(resolution, req, connection) {
   const incomingHeaders = extractIncomingHeaders(req);
   const args = {
     ...resolution.args,
-    token,
+    token: connection.token,
+    baseUrl: connection.baseUrl,
     incomingHeaders,
   };
 
@@ -49,22 +50,28 @@ export async function executeIntent(resolution, req, options = {}) {
     };
   }
 
-  const token = extractTokenFromRequest(req);
-  if (resolution.requiresAuth && !token) {
+  const connection = await (options.resolveConnection || resolveRequestConnection)(req);
+  if (resolution.requiresAuth && !connection.token) {
     return {
       status: "missing_auth",
       type: resolution.type,
       data: null,
       message: getMissingTokenMessage(),
-      meta: { dateRange: resolution.dateRange, reason: resolution.reason },
+      meta: { dateRange: resolution.dateRange, reason: resolution.reason, connection },
     };
   }
 
-  const args = buildFunctionArgs(resolution, req);
+  const args = buildFunctionArgs(resolution, req, connection);
   appendDebugLog(
     `intent_execute:${JSON.stringify({
       type: resolution.type,
       functionName: resolution.matchedFunction.name,
+      connection: {
+        contextKey: connection.contextKey,
+        baseUrl: connection.baseUrl || null,
+        tokenSource: connection.sources.token,
+        baseUrlSource: connection.sources.baseUrl,
+      },
       args: {
         ...args,
         token: maskToken(args.token),
@@ -85,13 +92,14 @@ export async function executeIntent(resolution, req, options = {}) {
       status: "success",
       type: resolution.type,
       data,
-      meta: {
-        dateRange: resolution.dateRange,
-        reason: resolution.reason,
-        confidence: resolution.confidence,
-        responseMode: resolution.responseMode,
-      },
-    };
+        meta: {
+          dateRange: resolution.dateRange,
+          reason: resolution.reason,
+          confidence: resolution.confidence,
+          responseMode: resolution.responseMode,
+          connection,
+        },
+      };
   } catch (error) {
     if (error && error.message === "AUTH_TERMINATED") {
       return {
@@ -99,7 +107,7 @@ export async function executeIntent(resolution, req, options = {}) {
         type: resolution.type,
         data: null,
         message: getAuthFailedMessage(),
-        meta: { dateRange: resolution.dateRange, reason: resolution.reason },
+        meta: { dateRange: resolution.dateRange, reason: resolution.reason, connection },
       };
     }
 
@@ -115,7 +123,7 @@ export async function executeIntent(resolution, req, options = {}) {
       type: resolution.type,
       data: null,
       error,
-      meta: { dateRange: resolution.dateRange, reason: resolution.reason },
+      meta: { dateRange: resolution.dateRange, reason: resolution.reason, connection },
     };
   }
 }

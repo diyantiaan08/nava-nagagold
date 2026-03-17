@@ -6,8 +6,8 @@ import { API_PATHS } from "./api_endpoints.js";
  * Ambil laporan transaksi pembelian untuk rentang tanggal.
  * Mengembalikan total jumlah transaksi, total berat, total rupiah, dan rows.
  */
-export async function getPembelian({ tgl_awal, tgl_akhir, group_by = "no_faktur_group", kode_group = "ALL", jenis_group = "ALL", kondisi = "ALL", barcode_option = "ALL", valid_by = "ALL", kode_sales = "ALL", is_consignment = "ALL", kode_harga = "ALL", token: tokenParam, incomingHeaders } = {}) {
-  const BASE_URL = process.env.TKM_BASE_URL || "https://tkmputri.goldstore.id";
+export async function getPembelian({ tgl_awal, tgl_akhir, group_by = "no_faktur_group", kode_group = "ALL", jenis_group = "ALL", kondisi = "ALL", barcode_option = "ALL", valid_by = "ALL", kode_sales = "ALL", is_consignment = "ALL", kode_harga = "ALL", token: tokenParam, baseUrl, incomingHeaders } = {}) {
+  const BASE_URL = baseUrl || process.env.TKM_BASE_URL || "https://tkmputri.goldstore.id";
   const tglAwal = tgl_awal || dayjs().format("YYYY-MM-DD");
   const tglAkhir = tgl_akhir || tglAwal;
   const payload = {
@@ -78,8 +78,8 @@ export async function getPembelian({ tgl_awal, tgl_akhir, group_by = "no_faktur_
  * Params: tgl_awal, tgl_akhir, kode_sales, kode_group, valid_by, jenis_group
  * sortBy: 'qty'|'berat'|'harga' (default 'qty')
  */
-export async function getPembelianSales({ tgl_awal, tgl_akhir, kode_sales = "ALL", kode_group = "ALL", valid_by = "ALL", jenis_group = "ALL", sortBy = "qty", token: tokenParam, incomingHeaders } = {}) {
-  const BASE_URL = process.env.TKM_BASE_URL || "https://tkmputri.goldstore.id";
+export async function getPembelianSales({ tgl_awal, tgl_akhir, kode_sales = "ALL", kode_group = "ALL", valid_by = "ALL", jenis_group = "ALL", sortBy = "qty", token: tokenParam, baseUrl, incomingHeaders } = {}) {
+  const BASE_URL = baseUrl || process.env.TKM_BASE_URL || "https://tkmputri.goldstore.id";
 
   const tglAwal = tgl_awal || dayjs().format("YYYY-MM-DD");
   const tglAkhir = tgl_akhir || tglAwal;

@@ -10,8 +10,8 @@ import { parseDatePhrase } from "./parseNaturalDate.js";
  */
 import fs from "fs";
 
-export async function getItem({ tanggal, gudang, token, incomingHeaders } = {}) {
-	const BASE_URL = process.env.TKM_BASE_URL || "https://tkmputri.goldstore.id";
+export async function getItem({ tanggal, gudang, token, baseUrl, incomingHeaders } = {}) {
+	const BASE_URL = baseUrl || process.env.TKM_BASE_URL || "https://tkmputri.goldstore.id";
 	const kode_gudang = gudang ? [gudang] : ["TOKO"];
 	// resolve natural-language tanggal (e.g. "kemarin", "minggu lalu")
 	let resolvedTanggal = tanggal;

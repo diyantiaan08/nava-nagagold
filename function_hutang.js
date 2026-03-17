@@ -7,8 +7,8 @@ import { API_PATHS } from "./api_endpoints.js";
  * Ambil laporan transaksi hutang untuk rentang tanggal.
  * Mengembalikan agregat: total_jumlah, total_berat, total_hutang, dan rows.
  */
-export async function getHutang({ tgl_awal, tgl_akhir, valid_by = "ALL", type_tgl = "tgl_hutang", token, incomingHeaders } = {}) {
-  const BASE_URL = process.env.TKM_BASE_URL || "https://tkmputri.goldstore.id";
+export async function getHutang({ tgl_awal, tgl_akhir, valid_by = "ALL", type_tgl = "tgl_hutang", token, baseUrl, incomingHeaders } = {}) {
+  const BASE_URL = baseUrl || process.env.TKM_BASE_URL || "https://tkmputri.goldstore.id";
   const tglAwal = tgl_awal || dayjs().format("YYYY-MM-DD");
   const tglAkhir = tgl_akhir || tglAwal;
   const effectiveToken = token || process.env.TKM_TOKEN || "";
@@ -95,8 +95,8 @@ export default getHutang;
  * Ambil laporan hutang lunas untuk rentang tanggal.
  * Mengembalikan agregat: total_jumlah, total_hutang_lunas, total_bunga_lunas, dan rows.
  */
-export async function getHutangLunas({ tgl_awal, tgl_akhir, valid_by = "ALL", type_tgl = "tgl_lunas", berdasarkan = "ALL", token, incomingHeaders } = {}) {
-  const BASE_URL = process.env.TKM_BASE_URL || "https://tkmputri.goldstore.id";
+export async function getHutangLunas({ tgl_awal, tgl_akhir, valid_by = "ALL", type_tgl = "tgl_lunas", berdasarkan = "ALL", token, baseUrl, incomingHeaders } = {}) {
+  const BASE_URL = baseUrl || process.env.TKM_BASE_URL || "https://tkmputri.goldstore.id";
   const tglAwal = tgl_awal || dayjs().format("YYYY-MM-DD");
   const tglAkhir = tgl_akhir || tglAwal;
   const effectiveToken = token || process.env.TKM_TOKEN || "";

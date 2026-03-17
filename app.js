@@ -12,11 +12,12 @@ import { getSmalltalkResponse } from "./smalltalk.js";
 import {
   appendDebugLog,
   endSse,
-  extractTokenFromRequest,
   getMissingTokenMessage,
   writeSseData,
   writeSseEvent,
 } from "./chat_utils.js";
+import { deleteConnectionContext, getConnectionContext, serializeConnectionContext, upsertConnectionContext } from "./connection_context_store.js";
+import { extractContextKey, resolveRequestConnection } from "./request_connection.js";
 
 function isLikelyDataQuestion(question = "") {
   return /\b(berapa|siapa|mana|jumlah|total|omzet|stok|stock|penjualan|pembelian|hutang|margin|cash|non(?:-|\s)?cash|service|sales|jual|menjual|laporan|saldo|pelanggan|customer|member|loyal|barang|produk|transaksi|pesanan|custom)\b/i.test(
@@ -89,12 +90,6 @@ export function createStreamAskHandler(options = {}) {
       return;
     }
 
-    if (resolution.requiresAuth && !extractTokenFromRequest(req)) {
-      writeSseData(res, getMissingTokenMessage());
-      endSse(res);
-      return;
-    }
-
     await streamModelResponse(res, question, { systemPrompt: DEFAULT_SYSTEM_PROMPT });
   };
 }
@@ -117,7 +112,14 @@ export function createApp(options = {}) {
       }
       const getItem = declarations.find((entry) => entry.name === "getItem");
       if (!getItem) return res.status(500).json({ error: "getItem not found" });
-      const result = await getItem.func({ tanggal: tgl, gudang });
+      const connection = await resolveRequestConnection({ query: req.query, headers: req.headers });
+      const result = await getItem.func({
+        tanggal: tgl,
+        gudang,
+        token: connection.token,
+        baseUrl: connection.baseUrl,
+        incomingHeaders: req.headers,
+      });
       res.json(result);
     } catch (error) {
       const status = error && error.response && error.response.status;
@@ -142,19 +144,80 @@ export function createApp(options = {}) {
       tgl_akhir = tgl_akhir || tgl_awal;
       const fn = declarations.find((entry) => entry.name === "getPenjualanAnnual");
       if (!fn) return res.status(500).json({ error: "getPenjualanAnnual not found" });
-      const incomingToken = req.body.token || req.headers["x-auth-token"] || req.query.token;
-      const result = await fn.func({ tgl_awal, tgl_akhir, token: incomingToken });
+      const connection = await resolveRequestConnection({
+        query: { ...req.query, token: req.body.token || req.query.token },
+        headers: req.headers,
+      });
+      const result = await fn.func({
+        tgl_awal,
+        tgl_akhir,
+        token: connection.token,
+        baseUrl: connection.baseUrl,
+        incomingHeaders: req.headers,
+      });
       res.json(result);
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
   });
 
+  app.get("/connection/context", async (req, res) => {
+    try {
+      const contextKey = extractContextKey(req);
+      const stored = await getConnectionContext(contextKey);
+      const resolved = await resolveRequestConnection(req);
+      res.json({
+        ok: true,
+        context: serializeConnectionContext(stored),
+        resolved: {
+          context_key: resolved.contextKey,
+          upstream_base_url: resolved.baseUrl || "",
+          has_upstream_token: Boolean(resolved.token),
+          token_source: resolved.sources.token,
+          base_url_source: resolved.sources.baseUrl,
+        },
+      });
+    } catch (error) {
+      res.status(500).json({ ok: false, error: error.message });
+    }
+  });
+
+  app.post("/connection/context", async (req, res) => {
+    try {
+      const contextKey = extractContextKey({ query: req.body, headers: req.headers });
+      const upstreamBaseUrl = String(req.body.upstream_base_url || "").trim();
+      const upstreamToken = String(req.body.upstream_token || "").trim();
+      const saved = await upsertConnectionContext({
+        contextKey,
+        upstreamBaseUrl,
+        upstreamToken,
+      });
+      res.json({
+        ok: true,
+        context: serializeConnectionContext(saved),
+      });
+    } catch (error) {
+      const status = error.message === "MONGO_NOT_CONFIGURED" ? 503 : 500;
+      res.status(status).json({ ok: false, error: error.message });
+    }
+  });
+
+  app.delete("/connection/context", async (req, res) => {
+    try {
+      const contextKey = extractContextKey(req);
+      await deleteConnectionContext(contextKey);
+      res.json({ ok: true, context_key: contextKey });
+    } catch (error) {
+      const status = error.message === "MONGO_NOT_CONFIGURED" ? 503 : 500;
+      res.status(status).json({ ok: false, error: error.message });
+    }
+  });
+
   app.get("/test/all", async (req, res) => {
-    const token = extractTokenFromRequest(req);
-    if (!token) {
+    const connection = await resolveRequestConnection(req);
+    if (!connection.token) {
       return res.status(400).json({
-        error: "missing token. provide ?token= or x-auth-token header or set TKM_TOKEN in .env",
+        error: getMissingTokenMessage(),
       });
     }
 
@@ -186,7 +249,8 @@ export function createApp(options = {}) {
       try {
         const result = await safeCallGlobal(fn.func, {
           ...candidate.args,
-          token,
+          token: connection.token,
+          baseUrl: connection.baseUrl,
           incomingHeaders: req.headers,
         });
         out[candidate.name] = { ok: true, result };
@@ -206,11 +270,16 @@ export function createApp(options = {}) {
     if (!name) return res.status(400).json({ error: "missing fn param" });
     const fn = declarations.find((entry) => entry.name === name);
     if (!fn) return res.status(404).json({ error: "function not found" });
-    const token = extractTokenFromRequest(req);
+    const connection = await resolveRequestConnection(req);
 
     try {
       const args = req.query.args ? JSON.parse(req.query.args) : {};
-      const result = await fn.func({ token, incomingHeaders: req.headers, ...args });
+      const result = await fn.func({
+        token: connection.token,
+        baseUrl: connection.baseUrl,
+        incomingHeaders: req.headers,
+        ...args,
+      });
       res.json({ ok: true, result });
     } catch (error) {
       res.json({ ok: false, error: error && error.message, stack: error && error.stack });

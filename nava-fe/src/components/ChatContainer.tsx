@@ -5,10 +5,20 @@ import { MessageBubble } from './MessageBubble';
 import { ChatInput } from './ChatInput';
 import { Sparkles } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
+import { ConnectionSettingsPanel } from './ConnectionSettingsPanel';
+import { ConfirmResetDialog } from './ConfirmResetDialog';
+import {
+  isManualConnectionSettingsEnabled,
+  resolveConnectionSettings,
+  resetManualConnectionSettings,
+} from '../lib/connectionSettings';
 
 export function ChatContainer() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
+  const [connectionRevision, setConnectionRevision] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { colors } = useTheme();
 
@@ -20,6 +30,19 @@ export function ChatContainer() {
     scrollToBottom();
   }, [messages]);
 
+  useEffect(() => {
+    if (!isManualConnectionSettingsEnabled()) return;
+
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === 'nava_manual_backend_url') {
+        setConnectionRevision((current) => current + 1);
+      }
+    };
+
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, []);
+
   const handleSend = async (content: string) => {
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -30,14 +53,9 @@ export function ChatContainer() {
 
     setMessages((prev) => [...prev, userMessage]);
     setIsLoading(true);
-    // Use Server-Sent Events (SSE) to receive streaming responses from backend
-    // Fallback to localhost:3000 when VITE_API_URL is not set (development)
-    const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-    const baseUrl = `${apiBase.replace(/\/$/, '')}/stream/ask`;
-    // Allow passing a token from localStorage (useful for development/testing)
-    const clientToken = typeof window !== 'undefined' ? window.localStorage.getItem('TKM_TOKEN') : null;
-    const tokenParam = clientToken ? `&token=${encodeURIComponent(clientToken)}` : '';
-    const url = `${baseUrl}?question=${encodeURIComponent(content)}${tokenParam}`;
+    const connection = resolveConnectionSettings();
+    const baseUrl = `${connection.apiBase.replace(/\/$/, '')}/stream/ask`;
+    const url = `${baseUrl}?question=${encodeURIComponent(content)}&context_key=default`;
 
     const assistantId = (Date.now() + 1).toString();
     setMessages((prev) => [...prev, { id: assistantId, content: '', role: 'assistant', timestamp: new Date() }]);
@@ -89,14 +107,41 @@ export function ChatContainer() {
   };
 
   const handleReset = () => {
-    if (window.confirm('Apakah Anda yakin ingin mereset percakapan?')) {
-      setMessages([]);
-    }
+    setIsResetDialogOpen(true);
   };
+
+  const handleConfirmReset = () => {
+    setMessages([]);
+    setIsResetDialogOpen(false);
+  };
+
+  const handleSettingsSaved = () => {
+    setConnectionRevision((current) => current + 1);
+  };
+
+  const handleSettingsReset = () => {
+    resetManualConnectionSettings();
+    setConnectionRevision((current) => current + 1);
+  };
+
+  const settingsEnabled = isManualConnectionSettingsEnabled();
+  void connectionRevision;
 
   return (
     <div className="flex flex-col h-screen bg-white dark:bg-gray-900">
-      <ChatHeader onReset={handleReset} />
+      <ChatHeader
+        onReset={handleReset}
+        onToggleSettings={() => setIsSettingsOpen((current) => !current)}
+        isSettingsOpen={isSettingsOpen}
+      />
+      {settingsEnabled && (
+        <ConnectionSettingsPanel
+          open={isSettingsOpen}
+          onClose={() => setIsSettingsOpen(false)}
+          onSaved={handleSettingsSaved}
+          onReset={handleSettingsReset}
+        />
+      )}
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.length === 0 ? (
@@ -136,6 +181,11 @@ export function ChatContainer() {
       </div>
 
       <ChatInput onSend={handleSend} disabled={isLoading} />
+      <ConfirmResetDialog
+        open={isResetDialogOpen}
+        onCancel={() => setIsResetDialogOpen(false)}
+        onConfirm={handleConfirmReset}
+      />
     </div>
   );
 }
